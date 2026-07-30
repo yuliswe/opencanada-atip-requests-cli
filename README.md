@@ -153,9 +153,26 @@ atip login          # Opens Chrome, you sign in, the CLI captures the session
 atip login --paste  # Fallback: paste the session cookie from DevTools instead
 atip login --check  # Verify the stored session still works (and show its expiry)
 atip request sync   # List live requests, updating the local tracker in place
-atip request sync --json   # Raw portal response, if you want to script against it
+atip request sync --json   # Parsed requests as JSON (for scripting)
+atip request sync --raw    # Raw portal response + diagnostics (for debugging)
+atip session refresh       # Extend the session once (keep it from timing out)
+atip session keepalive     # Refresh on a loop until Ctrl-C (default every 15 min)
 atip logout         # Delete the stored session
 ```
+
+### Keeping the session alive
+
+ATIP Online logs a session out after ~20 minutes of inactivity, and the OIDC
+flow issues no refresh token (it requests only `scope=openid`, no
+`offline_access` — and any token would live server-side on the portal anyway).
+What the portal _does_ have is a keep-alive endpoint (`/en/Session/Refresh`,
+the same one its timeout banner pings), and the CLI uses it:
+
+- `atip session refresh` pings it once, merges the reissued cookies into your
+  stored session, and slides the expiry forward.
+- `atip session keepalive` does that on a loop (default every 15 minutes, set
+  with `-i`), so a session stays alive as long as it runs. It stops on its own
+  once the session can no longer be renewed, telling you to `atip login` again.
 
 How `atip login` works and why:
 
@@ -168,11 +185,13 @@ How `atip login` works and why:
 - The sign-in uses a dedicated Chrome profile under `~/.atip-cli/chrome-profile`
   (separate from your everyday browser). Keeping it lets a future run reuse the
   still-live Sign-In Canada session to re-mint the portal cookie without
-  re-entering credentials — the only renewal possible, since the portal issues
-  no refresh token.
+  re-entering credentials, once the cookie session itself can no longer be
+  refreshed (see [Keeping the session alive](#keeping-the-session-alive)).
 - The captured cookie is stored at `~/.atip-cli/session.json` with `0600`
   permissions (owner read/write only), and is never sent anywhere except back
-  to `atip-aiprp.tbs-sct.gc.ca`.
+  to `atip-aiprp.tbs-sct.gc.ca`. Override the mode with `ATIP_CLI_SESSION_MODE`
+  (octal, e.g. `644`) only if another local user must read it — that exposes a
+  live credential, so it is opt-in.
 - `--paste` is the zero-Playwright fallback: after signing in yourself, open
   DevTools → Network, click any request to `atip-aiprp.tbs-sct.gc.ca`, and
   paste the whole `Cookie:` request header (hidden input).

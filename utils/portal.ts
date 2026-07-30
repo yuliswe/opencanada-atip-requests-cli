@@ -76,6 +76,42 @@ export async function verifySession(session: PortalSession): Promise<void> {
   }
 }
 
+// The portal's inactivity window (from the WET session-timeout widget config:
+// inactivity 1200000ms). A successful refresh resets the idle timer, so the
+// session is good for roughly another window.
+export const SESSION_WINDOW_MS = 20 * 60_000;
+
+// Pings /en/Session/Refresh — the same keep-alive the portal UI calls to stop
+// the 20-minute inactivity logout. It answers `true` and reissues the session
+// cookies, which are merged back in so the stored session slides forward.
+// Throws SessionExpiredError once the session can no longer be kept alive.
+export async function refreshSession(
+  session: PortalSession,
+  now: Date = new Date()
+): Promise<PortalSession> {
+  const response = await fetchWithTimeout(
+    `${ATIP_ONLINE_ORIGIN}/en/Session/Refresh`,
+    {
+      headers: {
+        ...baseHeaders(session),
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    }
+  );
+  assertStillAuthed(response);
+  const body = (await response.text()).trim().toLowerCase();
+  if (!response.ok || body !== 'true') {
+    throw new SessionExpiredError();
+  }
+  const jar = parseCookieHeader(session.cookie ?? '');
+  applySetCookies(jar, response.headers.getSetCookie());
+  return {
+    ...session,
+    cookie: serializeCookieJar(jar),
+    expiresAt: new Date(now.getTime() + SESSION_WINDOW_MS).toISOString(),
+  };
+}
+
 const ANTIFORGERY_FIELD = '__RequestVerificationToken';
 
 export function parseCookieHeader(header: string): Map<string, string> {

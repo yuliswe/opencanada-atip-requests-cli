@@ -9,6 +9,7 @@ import { createOrgsCommand } from '@/commands/orgs/command';
 import { createPortalCommand } from '@/commands/portal/command';
 import { createRequestCommandGroup } from '@/commands/request/group';
 import { createSearchCommand } from '@/commands/search/command';
+import { createSessionCommandGroup } from '@/commands/session/group';
 import { printErr } from '@/utils/render';
 
 const program = new Command();
@@ -29,6 +30,7 @@ program.addCommand(createOrgsCommand());
 program.addCommand(createPortalCommand());
 program.addCommand(createRequestCommandGroup());
 program.addCommand(createSearchCommand());
+program.addCommand(createSessionCommandGroup());
 
 void (async () => {
   try {

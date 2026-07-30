@@ -3,6 +3,7 @@ import {
   extractAntiforgeryToken,
   fetchRequestList,
   parseCookieHeader,
+  refreshSession,
   serializeCookieJar,
   SessionExpiredError,
   verifySession,
@@ -222,6 +223,48 @@ describe('fetchRequestList', () => {
     // cookie is merged in, so the token and its cookie now match.
     expect(cookie).toContain('.AspNetCore.Cookies=abc');
     expect(cookie).toContain('.AspNetCore.Antiforgery.NEW=FRESH-COOKIE');
+  });
+});
+
+describe('refreshSession', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('merges reissued cookies and slides the expiry on a "true" response', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      mockResponse('true', {
+        url: 'https://atip-aiprp.tbs-sct.gc.ca/en/Session/Refresh',
+        contentType: 'application/json',
+        setCookie: 'ATIP=NEWVALUE; path=/; httponly',
+      })
+    );
+    const now = new Date('2026-07-30T12:00:00.000Z');
+    const refreshed = await refreshSession(SESSION, now);
+    expect(refreshed.cookie).toContain('.AspNetCore.Cookies=abc');
+    expect(refreshed.cookie).toContain('ATIP=NEWVALUE');
+    expect(refreshed.expiresAt).toBe('2026-07-30T12:20:00.000Z');
+  });
+
+  it('throws SessionExpiredError when the refresh redirects to sign-in', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      mockResponse('<h1>sign in</h1>', {
+        url: 'https://atip-aiprp.tbs-sct.gc.ca/en/Home/Signin',
+      })
+    );
+    await expect(refreshSession(SESSION)).rejects.toBeInstanceOf(
+      SessionExpiredError
+    );
+  });
+
+  it('throws SessionExpiredError when the body is not "true"', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      mockResponse('false', {
+        url: 'https://atip-aiprp.tbs-sct.gc.ca/en/Session/Refresh',
+        contentType: 'application/json',
+      })
+    );
+    await expect(refreshSession(SESSION)).rejects.toBeInstanceOf(
+      SessionExpiredError
+    );
   });
 });
 
