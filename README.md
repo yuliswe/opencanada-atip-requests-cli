@@ -221,7 +221,7 @@ without asking you to sign in again. The command blocks until you close the
 window.
 
 ```sh
-atip portal open                                            # Portal home, signed in
+atip portal open                                            # Your dashboard, signed in
 atip portal open --url https://atip-aiprp.tbs-sct.gc.ca/en  # A specific portal page
 ```
 
