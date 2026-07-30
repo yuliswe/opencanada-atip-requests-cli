@@ -1,5 +1,9 @@
 import {
+  applySetCookies,
+  extractAntiforgeryToken,
   fetchRequestList,
+  parseCookieHeader,
+  serializeCookieJar,
   SessionExpiredError,
   verifySession,
 } from '@/utils/portal';
@@ -14,12 +18,20 @@ const SESSION: PortalSession = {
 
 function mockResponse(
   body: string,
-  init: { url: string; status?: number; contentType?: string }
+  init: {
+    url: string;
+    status?: number;
+    contentType?: string;
+    setCookie?: string;
+  }
 ): Response {
-  const res = new Response(body, {
-    status: init.status ?? 200,
-    headers: { 'content-type': init.contentType ?? 'text/html' },
+  const headers = new Headers({
+    'content-type': init.contentType ?? 'text/html',
   });
+  if (init.setCookie) {
+    headers.append('set-cookie', init.setCookie);
+  }
+  const res = new Response(body, { status: init.status ?? 200, headers });
   // Response.url is read-only and empty for synthesized responses; the portal
   // client reads it to detect sign-in redirects, so it must be set explicitly.
   Object.defineProperty(res, 'url', { value: init.url });
@@ -169,5 +181,61 @@ describe('fetchRequestList', () => {
         })
       );
     await expect(fetchRequestList(SESSION)).resolves.toEqual([]);
+  });
+
+  it('forwards the antiforgery cookie set by the token GET onto the POST', async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        mockResponse(LIST_HTML, {
+          url: 'https://atip-aiprp.tbs-sct.gc.ca/en/YourRequestList',
+          setCookie:
+            '.AspNetCore.Antiforgery.NEW=FRESH-COOKIE; path=/; samesite=strict; httponly',
+        })
+      )
+      .mockResolvedValueOnce(
+        mockResponse(JSON.stringify({ data: [] }), {
+          url: 'https://atip-aiprp.tbs-sct.gc.ca/en/YourRequestList/GetMyRequestsList',
+          contentType: 'application/json',
+        })
+      );
+
+    await fetchRequestList(SESSION);
+
+    const postInit = fetchSpy.mock.calls[1][1];
+    const cookie = new Headers(postInit?.headers).get('cookie') ?? '';
+    // The original session cookies survive and the freshly set antiforgery
+    // cookie is merged in, so the token and its cookie now match.
+    expect(cookie).toContain('.AspNetCore.Cookies=abc');
+    expect(cookie).toContain('.AspNetCore.Antiforgery.NEW=FRESH-COOKIE');
+  });
+});
+
+describe('cookie jar helpers', () => {
+  it('parses, merges Set-Cookie, and re-serializes', () => {
+    const jar = parseCookieHeader('.AspNetCore.Cookies=abc; TS=1');
+    applySetCookies(jar, [
+      '.AspNetCore.Antiforgery.k=NEW; path=/; httponly',
+      'TS=2; path=/',
+    ]);
+    expect(serializeCookieJar(jar)).toBe(
+      '.AspNetCore.Cookies=abc; TS=2; .AspNetCore.Antiforgery.k=NEW'
+    );
+  });
+});
+
+describe('extractAntiforgeryToken', () => {
+  it('extracts regardless of attribute order or quote style', () => {
+    expect(
+      extractAntiforgeryToken(
+        '<input name="__RequestVerificationToken" type="hidden" value="AAA" />'
+      )
+    ).toBe('AAA');
+    expect(
+      extractAntiforgeryToken(
+        "<input type='hidden' value='BBB' name='__RequestVerificationToken'>"
+      )
+    ).toBe('BBB');
+    expect(extractAntiforgeryToken('<p>no token here</p>')).toBeNull();
   });
 });

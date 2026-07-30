@@ -83,19 +83,70 @@ export async function verifySession(session: PortalSession): Promise<void> {
 
 const ANTIFORGERY_FIELD = '__RequestVerificationToken';
 
+export function parseCookieHeader(header: string): Map<string, string> {
+  const jar = new Map<string, string>();
+  for (const part of header.split(';')) {
+    const trimmed = part.trim();
+    const eq = trimmed.indexOf('=');
+    if (eq > 0) {
+      jar.set(trimmed.slice(0, eq), trimmed.slice(eq + 1));
+    }
+  }
+  return jar;
+}
+
+// Applies Set-Cookie headers onto a cookie jar, taking only the name=value
+// prefix of each (attributes like Path/HttpOnly are irrelevant when we replay
+// the cookie to the same origin).
+export function applySetCookies(
+  jar: Map<string, string>,
+  setCookies: string[]
+): void {
+  for (const setCookie of setCookies) {
+    const [pair] = setCookie.split(';');
+    const eq = pair.indexOf('=');
+    if (eq > 0) {
+      jar.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+    }
+  }
+}
+
+export function serializeCookieJar(jar: Map<string, string>): string {
+  return [...jar.entries()]
+    .map(([name, value]) => `${name}=${value}`)
+    .join('; ');
+}
+
+// Order-independent extraction of the antiforgery token from a hidden input,
+// tolerating any attribute order and single or double quotes.
+export function extractAntiforgeryToken(html: string): string | null {
+  const tag = html.match(
+    /<input\b[^>]*\bname=["']__RequestVerificationToken["'][^>]*>/i
+  );
+  if (!tag) {
+    return null;
+  }
+  const value = tag[0].match(/\bvalue=["']([^"']*)["']/i);
+  return value ? value[1] : null;
+}
+
 // The antiforgery token is rendered into a hidden field on the list page and
-// must be echoed back on the POST that fetches the list. It is paired with an
-// HttpOnly antiforgery cookie, which is why the captured cookie jar has to
-// include the whole set, not just the auth cookie.
-async function fetchAntiforgeryToken(
+// must be echoed back on the POST. Critically, the GET that renders it also
+// sets the paired antiforgery cookie via Set-Cookie; because Node's fetch keeps
+// no cookie jar between calls, that cookie is forwarded here explicitly.
+// Without it the token has no matching cookie and the portal answers the POST
+// with an HTML error page instead of JSON.
+async function fetchAntiforgeryContext(
   session: PortalSession
-): Promise<string | null> {
+): Promise<{ token: string | null; cookie: string }> {
   const response = await portalGet(session, '/en/YourRequestList');
   const html = await response.text();
-  const match = html.match(
-    /name="__RequestVerificationToken"[^>]*value="([^"]+)"/
-  );
-  return match ? match[1] : null;
+  const jar = parseCookieHeader(session.cookie ?? '');
+  applySetCookies(jar, response.headers.getSetCookie());
+  return {
+    token: extractAntiforgeryToken(html),
+    cookie: serializeCookieJar(jar),
+  };
 }
 
 function stripHtml(cell: string): string {
@@ -153,8 +204,9 @@ const GET_MY_REQUESTS_PATH = '/en/YourRequestList/GetMyRequestsList';
 
 async function postRequestList(
   session: PortalSession,
-  token: string | null
+  context: { token: string | null; cookie: string }
 ): Promise<Response> {
+  const { token, cookie } = context;
   const body = new URLSearchParams({
     draw: '1',
     start: '0',
@@ -168,6 +220,9 @@ async function postRequestList(
   }
   const headers: Record<string, string> = {
     ...baseHeaders(session),
+    // The merged jar (session cookies plus the antiforgery cookie freshly set
+    // by the token GET) replaces the base session cookie.
+    Cookie: cookie,
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     'X-Requested-With': 'XMLHttpRequest',
   };
@@ -198,10 +253,10 @@ export type RequestListDiagnostics = {
 export async function fetchRequestListDiagnostics(
   session: PortalSession
 ): Promise<RequestListDiagnostics> {
-  const token = await fetchAntiforgeryToken(session);
-  const response = await postRequestList(session, token);
+  const context = await fetchAntiforgeryContext(session);
+  const response = await postRequestList(session, context);
   return {
-    tokenFound: token !== null,
+    tokenFound: context.token !== null,
     status: response.status,
     finalUrl: response.url,
     contentType: response.headers.get('content-type') ?? '',
@@ -212,8 +267,8 @@ export async function fetchRequestListDiagnostics(
 export async function fetchRequestListRaw(
   session: PortalSession
 ): Promise<DataTablesResponse> {
-  const token = await fetchAntiforgeryToken(session);
-  const response = await postRequestList(session, token);
+  const context = await fetchAntiforgeryContext(session);
+  const response = await postRequestList(session, context);
   assertStillAuthed(response);
   if (!response.ok) {
     throw new Error(
@@ -228,7 +283,7 @@ export async function fetchRequestListRaw(
     throw new Error(
       `Expected JSON from the request list but got ${contentType} ` +
         `(${text.length} bytes). The antiforgery token was ` +
-        `${token ? 'found' : 'NOT found'}. ` +
+        `${context.token ? 'found' : 'NOT found'}. ` +
         'Run "atip request sync --json" to see the raw response.'
     );
   }
