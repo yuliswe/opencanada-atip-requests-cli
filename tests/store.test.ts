@@ -7,8 +7,10 @@ import {
   findRequest,
   getStoreFilePath,
   loadStore,
+  mapPortalStatus,
   removeRequest,
   updateRequest,
+  upsertPortalRequest,
 } from '@/utils/store';
 
 describe('store', () => {
@@ -113,5 +115,71 @@ describe('store', () => {
     const store = loadStore();
     expect(store.requests).toHaveLength(0);
     expect(store.nextId).toBe(2);
+  });
+});
+
+describe('mapPortalStatus', () => {
+  it('maps known portal wording onto tracker statuses', () => {
+    expect(mapPortalStatus('In progress')).toBe('in-progress');
+    expect(mapPortalStatus('Closed')).toBe('completed');
+    expect(mapPortalStatus('Completed')).toBe('completed');
+    expect(mapPortalStatus('Abandoned')).toBe('abandoned');
+    expect(mapPortalStatus('Submitted')).toBe('submitted');
+  });
+
+  it('returns null for wording with no clear equivalent', () => {
+    expect(mapPortalStatus('Awaiting payment')).toBeNull();
+  });
+});
+
+describe('upsertPortalRequest', () => {
+  let tempHome: string;
+
+  beforeEach(() => {
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'atip-upsert-test-'));
+    process.env.ATIP_CLI_HOME = tempHome;
+  });
+
+  afterEach(() => {
+    delete process.env.ATIP_CLI_HOME;
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  const portalInput = {
+    portalId: '550889',
+    institution: 'IRCC',
+    summary: 'IRCC-security-screening-simple-stats',
+    portalStatus: 'In progress',
+    url: 'https://atip-aiprp.tbs-sct.gc.ca/en/YourRequestDetails/Index/550889',
+  };
+
+  it('creates a tracked request on first sync', () => {
+    const result = upsertPortalRequest(portalInput);
+    expect(result.created).toBe(true);
+    expect(result.request.portalId).toBe('550889');
+    expect(result.request.status).toBe('in-progress');
+    expect(result.request.portalStatus).toBe('In progress');
+    expect(loadStore().requests).toHaveLength(1);
+  });
+
+  it('updates in place on the next sync without duplicating', () => {
+    upsertPortalRequest(portalInput);
+    const again = upsertPortalRequest(portalInput);
+    expect(again.created).toBe(false);
+    expect(again.statusChanged).toBe(false);
+    expect(loadStore().requests).toHaveLength(1);
+  });
+
+  it('records a status change and appends a note', () => {
+    upsertPortalRequest(portalInput);
+    const changed = upsertPortalRequest({
+      ...portalInput,
+      portalStatus: 'Closed',
+    });
+    expect(changed.created).toBe(false);
+    expect(changed.statusChanged).toBe(true);
+    expect(changed.request.status).toBe('completed');
+    expect(changed.request.notes.at(-1)?.text).toBe('Portal status: Closed');
+    expect(loadStore().requests).toHaveLength(1);
   });
 });

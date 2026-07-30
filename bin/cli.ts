@@ -3,6 +3,8 @@
 import { Command } from 'commander';
 import process from 'node:process';
 import { createInformalCommand } from '@/commands/informal/command';
+import { createLoginCommand } from '@/commands/login/command';
+import { createLogoutCommand } from '@/commands/logout/command';
 import { createOrgsCommand } from '@/commands/orgs/command';
 import { createPortalCommand } from '@/commands/portal/command';
 import { createRequestCommandGroup } from '@/commands/request/group';
@@ -21,6 +23,8 @@ program
   .version('0.1.0');
 
 program.addCommand(createInformalCommand());
+program.addCommand(createLoginCommand());
+program.addCommand(createLogoutCommand());
 program.addCommand(createOrgsCommand());
 program.addCommand(createPortalCommand());
 program.addCommand(createRequestCommandGroup());

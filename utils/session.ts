@@ -1,0 +1,78 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { getEnv } from '@/utils/env';
+
+// One captured ATIP Online authentication. Whatever the portal turns out to
+// use (an HttpOnly session cookie, a bearer token, or both), it is normalized
+// into cookies + headers so the portal client can attach them to plain fetch
+// calls without caring how they were obtained.
+export type PortalSession = {
+  // Serialized "name=value; name2=value2" cookie header, if the portal
+  // authenticates by cookie.
+  cookie: string | null;
+  // Extra headers to send on every authenticated request (e.g. a bearer
+  // token or an anti-forgery header), if the portal authenticates that way.
+  headers: Record<string, string>;
+  // Best-effort absolute expiry (ISO 8601) derived at capture time from the
+  // shortest-lived auth cookie/token. Null when unknown.
+  expiresAt: string | null;
+  capturedAt: string;
+};
+
+export function getSessionFilePath(): string {
+  const home = getEnv().ATIP_CLI_HOME ?? path.join(os.homedir(), '.atip-cli');
+  return path.join(home, 'session.json');
+}
+
+export function loadSession(): PortalSession | null {
+  const file = getSessionFilePath();
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(file, 'utf-8')) as PortalSession;
+}
+
+export function saveSession(session: PortalSession): void {
+  const file = getSessionFilePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.tmp`;
+  // The session grants access to the user's ATIP account, so it is written
+  // owner-read/write only. Perms are set on the fd before any content lands.
+  const fd = fs.openSync(tmp, 'w', 0o600);
+  try {
+    fs.writeSync(fd, `${JSON.stringify(session, null, 2)}\n`);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, file);
+}
+
+export function clearSession(): void {
+  const file = getSessionFilePath();
+  if (fs.existsSync(file)) {
+    fs.rmSync(file);
+  }
+}
+
+// Treated as expired a minute early so a request is never fired with a
+// credential that lapses in flight.
+const EXPIRY_SKEW_MS = 60_000;
+
+export function isSessionExpired(
+  session: PortalSession,
+  now: Date = new Date()
+): boolean {
+  if (!session.expiresAt) {
+    return false;
+  }
+  return (
+    new Date(session.expiresAt).getTime() - EXPIRY_SKEW_MS <= now.getTime()
+  );
+}
+
+export function hasUsableSession(now: Date = new Date()): boolean {
+  const session = loadSession();
+  return session !== null && !isSessionExpired(session, now);
+}

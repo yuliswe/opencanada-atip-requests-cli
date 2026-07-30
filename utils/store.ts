@@ -30,6 +30,12 @@ export type TrackedRequest = {
   summary: string;
   status: TrackedStatus;
   url: string | null;
+  // Portal identity, set when a request is synced from ATIP Online. portalId
+  // is the portal's internal numeric id (stable across syncs); portalStatus is
+  // its raw status string, kept verbatim because the portal's vocabulary does
+  // not map one-to-one onto TrackedStatus.
+  portalId: string | null;
+  portalStatus: string | null;
   createdAt: string;
   updatedAt: string;
   notes: TrackedNote[];
@@ -99,11 +105,15 @@ export function addRequest(fields: {
   status: TrackedStatus;
   summary: string;
   url: string | null;
+  portalId?: string | null;
+  portalStatus?: string | null;
 }): TrackedRequest {
   const store = loadStore();
   const now = new Date().toISOString();
   const request: TrackedRequest = {
     ...fields,
+    portalId: fields.portalId ?? null,
+    portalStatus: fields.portalStatus ?? null,
     id: store.nextId,
     createdAt: now,
     updatedAt: now,
@@ -113,6 +123,95 @@ export function addRequest(fields: {
   store.requests.push(request);
   saveStore(store);
   return request;
+}
+
+// Maps ATIP Online's free-text status onto the tracker's vocabulary. Returns
+// null when the portal wording has no clear equivalent, so the caller keeps
+// the mapped status untouched and relies on the raw portalStatus instead.
+export function mapPortalStatus(portalStatus: string): TrackedStatus | null {
+  const value = portalStatus.toLowerCase();
+  if (value.includes('progress')) {
+    return 'in-progress';
+  }
+  if (value.includes('closed') || value.includes('complete')) {
+    return 'completed';
+  }
+  if (value.includes('abandon')) {
+    return 'abandoned';
+  }
+  if (value.includes('extend')) {
+    return 'extended';
+  }
+  if (value.includes('submit')) {
+    return 'submitted';
+  }
+  return null;
+}
+
+export type PortalUpsert = {
+  portalId: string;
+  institution: string;
+  summary: string;
+  portalStatus: string;
+  url: string;
+};
+
+// Merges one portal request into the tracker, keyed on portalId so repeated
+// syncs update in place rather than duplicating. Returns what happened so the
+// sync command can report created / status-changed rows.
+export function upsertPortalRequest(input: PortalUpsert): {
+  request: TrackedRequest;
+  created: boolean;
+  statusChanged: boolean;
+} {
+  const store = loadStore();
+  const now = new Date().toISOString();
+  const mapped = mapPortalStatus(input.portalStatus);
+  const existing = store.requests.find(
+    request => request.portalId === input.portalId
+  );
+
+  if (!existing) {
+    const request: TrackedRequest = {
+      id: store.nextId,
+      kind: 'formal',
+      requestNumber: null,
+      institution: input.institution,
+      summary: input.summary,
+      status: mapped ?? 'submitted',
+      url: input.url,
+      portalId: input.portalId,
+      portalStatus: input.portalStatus,
+      createdAt: now,
+      updatedAt: now,
+      notes: [],
+    };
+    store.nextId += 1;
+    store.requests.push(request);
+    saveStore(store);
+    return { request, created: true, statusChanged: true };
+  }
+
+  const statusChanged = existing.portalStatus !== input.portalStatus;
+  existing.portalStatus = input.portalStatus;
+  if (mapped) {
+    existing.status = mapped;
+  }
+  if (!existing.institution) {
+    existing.institution = input.institution;
+  }
+  if (!existing.url) {
+    existing.url = input.url;
+  }
+  if (statusChanged) {
+    existing.notes.push({
+      at: now,
+      text: `Portal status: ${input.portalStatus}`,
+    });
+    existing.updatedAt = now;
+  }
+  saveStore(store);
+  return { request: existing, created: false, statusChanged };
 }
 
 export function updateRequest(params: {

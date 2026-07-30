@@ -11,11 +11,13 @@ portal every time.
   the request form for you.
 - 📝 **File formal requests** — the CLI walks you through ATIP Online and
   records the request number when you are done.
+- 🔁 **Sync live status from ATIP Online** — after a one-time browser sign-in,
+  the CLI reads your open requests and their status straight from the portal.
 - 📋 **Track every request locally** — status, notes, and dates live in a
   local JSON file, which matters because ATIP Online deletes responses two
   years after completion.
 - 🌐 **Browser hand-off for the rest** — anything without a public API
-  (sign-in, the $5 fee, web forms, status pages) opens in your browser, and
+  (the $5 fee, web forms, new-request wizard) opens in your browser, and
   the CLI continues once you confirm the step is done.
 
 ## Requirements
@@ -34,10 +36,15 @@ portal every time.
 institutions, and looking up records (read-only CKAN datastore on
 open.canada.ca).
 
-**Browser hand-off** — submitting requests (formal or informal), paying the
-$5 application fee (Moneris), and checking status on the portal. The CLI
-prints the steps, opens the page, waits for you to finish, then records the
-outcome locally.
+**Authenticated via captured session** — reading your own requests and their
+live status. ATIP Online has no public API and a browser-only Sign-In Canada /
+CanadaLogin flow, so `atip login` has you sign in once and paste the session
+cookie; the CLI then calls the portal's own endpoints with it (see
+[Managing your own requests](#managing-your-own-requests-authenticated)).
+
+**Browser hand-off** — submitting requests (formal or informal) and paying the
+$5 application fee (Moneris). The CLI prints the steps, opens the page, waits
+for you to finish, then records the outcome locally.
 
 ## Setup
 
@@ -114,6 +121,7 @@ atip request list --json                    # Raw records for scripting
 atip request show 1                         # Full detail, including notes
 
 atip request status 1                       # Re-check on the portal, record what you see
+atip request sync                           # Pull live status for all requests (needs `atip login`)
 atip request update 1 --status acknowledged --note "Email received"
 atip request update 1 --number A-2026-00123 # Fill in the number once assigned
 atip request remove 1
@@ -122,11 +130,45 @@ atip request remove 1
 Statuses: `submitted`, `acknowledged`, `in-progress`, `extended`,
 `records-ready`, `completed`, `abandoned`.
 
-`request new` and `request status` are browser hand-offs: submission needs
-Sign-In Canada / CanadaLogin and (for formal ATI requests) the $5 Moneris
-payment, neither of which has an API. Download released records promptly —
-ATIP Online retains them for only two years after completion, so the local
-tracker plus your downloads are the durable copy.
+`request new` is a browser hand-off: submission needs Sign-In Canada /
+CanadaLogin and (for formal ATI requests) the $5 Moneris payment, neither of
+which has an API. `request status` is the manual, no-login way to record a
+status you read yourself; `request sync` is the automated version once you have
+run `atip login`. Download released records promptly — ATIP Online retains them
+for only two years after completion, so the local tracker plus your downloads
+are the durable copy.
+
+## Managing your own requests (authenticated)
+
+`atip request sync` reads your open requests and their live status directly
+from ATIP Online. Because the portal has no public API and its Sign-In Canada /
+CanadaLogin flow (with MFA) cannot be automated, you sign in once in the
+browser and hand the CLI your session:
+
+```sh
+atip login          # Opens the portal; paste your session cookie once (hidden input)
+atip login --check  # Verify the stored session still works
+atip request sync   # List live requests, updating the local tracker in place
+atip request sync --json   # Raw portal response, if you want to script against it
+atip logout         # Delete the stored session
+```
+
+How `atip login` works and why:
+
+- The portal authenticates with an **HttpOnly `.AspNetCore.Cookies` session
+  cookie**, which by design no script can read. So you copy it once: after
+  signing in, open your browser's DevTools → Network tab, click any request to
+  `atip-aiprp.tbs-sct.gc.ca`, and copy the whole `Cookie:` request header.
+- The cookie is stored at `~/.atip-cli/session.json` with `0600` permissions
+  (owner read/write only). It is never sent anywhere except back to
+  `atip-aiprp.tbs-sct.gc.ca`.
+- Portal sessions are short-lived. When yours lapses, `sync` tells you to run
+  `atip login` again. (Automatic renewal via a managed browser profile is
+  planned; see the code comments in `utils/portal.ts`.)
+
+`request sync` keys on the portal's internal request id, so re-running it
+updates existing tracked requests in place and appends a note whenever a
+status changes, rather than creating duplicates.
 
 ### portal
 
@@ -143,8 +185,11 @@ atip portal
   (resource `19383ca2-b01a-487d-88f7-e1ffbc7d39c2`).
 - Informal requests: the form embedded on each record page of the
   [ATI search](https://open.canada.ca/en/search/ati).
-- Formal requests and status: [ATIP Online](https://atip-aiprp.tbs-sct.gc.ca/en),
-  which is browser-only.
+- Formal requests: [ATIP Online](https://atip-aiprp.tbs-sct.gc.ca/en), whose
+  submission flow is browser-only.
+- Live request status: ATIP Online's own `GetMyRequestsList` and
+  `YourRequestDetails` endpoints, called with your captured session cookie by
+  `atip request sync`.
 - Note that IRCC (immigration) requests are filed on IRCC's own portal, not
   ATIP Online; you can still track them here with `atip request new`.
 

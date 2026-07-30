@@ -2,7 +2,8 @@
 // portal has no public API: sign-in goes through Sign-In Canada / CanadaLogin
 // and the $5 application fee is collected by Moneris, so those steps must
 // happen in a browser.
-export const ATIP_ONLINE_PORTAL_URL = 'https://atip-aiprp.tbs-sct.gc.ca/en';
+export const ATIP_ONLINE_ORIGIN = 'https://atip-aiprp.tbs-sct.gc.ca';
+export const ATIP_ONLINE_PORTAL_URL = `${ATIP_ONLINE_ORIGIN}/en`;
 
 export const ATI_SEARCH_PAGE_URL = 'https://open.canada.ca/en/search/ati';
 

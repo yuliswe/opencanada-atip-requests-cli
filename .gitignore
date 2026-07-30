@@ -12,3 +12,7 @@ build/
 *.temp.*
 *.tmp
 *.tmp.*
+
+# Local runtime symlinks into the main worktree
+.nodevenv
+.venv

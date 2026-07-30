@@ -2,10 +2,11 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 export async function fetchWithTimeout(
   url: string,
-  options?: { timeoutMs?: number }
+  options?: RequestInit & { timeoutMs?: number }
 ): Promise<Response> {
-  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, ...init } = options ?? {};
   return await globalThis.fetch(url, {
+    ...init,
     signal: AbortSignal.timeout(timeoutMs),
   });
 }
