@@ -43,8 +43,9 @@ export function createSyncCommand(): Command {
         const diag = await fetchRequestListDiagnostics(session);
         print(
           chalk.dim(
-            `status=${diag.status} content-type=${diag.contentType} ` +
+            `token-get-url=${diag.tokenGetUrl}\n` +
               `antiforgery-token=${diag.tokenFound ? 'found' : 'NOT found'} ` +
+              `status=${diag.status} content-type=${diag.contentType} ` +
               `final-url=${diag.finalUrl}`
           )
         );

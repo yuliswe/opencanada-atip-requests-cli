@@ -138,7 +138,7 @@ export function extractAntiforgeryToken(html: string): string | null {
 // with an HTML error page instead of JSON.
 async function fetchAntiforgeryContext(
   session: PortalSession
-): Promise<{ token: string | null; cookie: string }> {
+): Promise<{ token: string | null; cookie: string; tokenGetUrl: string }> {
   const response = await portalGet(session, '/en/YourRequestList');
   const html = await response.text();
   const jar = parseCookieHeader(session.cookie ?? '');
@@ -146,7 +146,25 @@ async function fetchAntiforgeryContext(
   return {
     token: extractAntiforgeryToken(html),
     cookie: serializeCookieJar(jar),
+    tokenGetUrl: response.url,
   };
+}
+
+// The token GET should stay on the request-list page. If the portal bounced it
+// elsewhere on-origin (e.g. /Email/CheckEmail when email verification is
+// pending, or an account page), the session is not fully usable and there is
+// no token to send — surface that instead of POSTing into a doomed request.
+function assertOnRequestList(tokenGetUrl: string): void {
+  if (
+    !new URL(tokenGetUrl).pathname.toLowerCase().includes('yourrequestlist')
+  ) {
+    throw new Error(
+      `ATIP Online redirected to ${new URL(tokenGetUrl).pathname} instead of ` +
+        'your request list. Your session is signed in but not fully active ' +
+        '(often a pending email verification). Complete any prompts on the ' +
+        'portal, then run "atip login" again.'
+    );
+  }
 }
 
 function stripHtml(cell: string): string {
@@ -241,6 +259,7 @@ async function postRequestList(
 
 export type RequestListDiagnostics = {
   tokenFound: boolean;
+  tokenGetUrl: string;
   status: number;
   finalUrl: string;
   contentType: string;
@@ -257,6 +276,7 @@ export async function fetchRequestListDiagnostics(
   const response = await postRequestList(session, context);
   return {
     tokenFound: context.token !== null,
+    tokenGetUrl: context.tokenGetUrl,
     status: response.status,
     finalUrl: response.url,
     contentType: response.headers.get('content-type') ?? '',
@@ -268,6 +288,7 @@ export async function fetchRequestListRaw(
   session: PortalSession
 ): Promise<DataTablesResponse> {
   const context = await fetchAntiforgeryContext(session);
+  assertOnRequestList(context.tokenGetUrl);
   const response = await postRequestList(session, context);
   assertStillAuthed(response);
   if (!response.ok) {
