@@ -1,5 +1,5 @@
 ---
-name: atip-run-cli
+name: run-cli
 description: How to invoke the atip CLI from this repo (entry point, sandbox, network, interactive prompts, local store).
 ---
 
