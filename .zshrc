@@ -21,3 +21,5 @@ else
 source "$(dirname $0/)/devenv.bash"
 fi
 
+export PATH="$WS_DIR/bin:$PATH"
+

@@ -1,6 +1,7 @@
 /** @type {import('ts-jest').JestConfigWithTsJest} */
 const jestConfig = {
   testEnvironment: 'node',
+  watchman: false,
   globalSetup: `<rootDir>/tests/test.globalSetup.ts`,
   globalTeardown: `<rootDir>/tests/test.globalTeardown.ts`,
   setupFiles: [`<rootDir>/tests/test.setupBeforeEnv.ts`],
@@ -25,9 +26,10 @@ const jestConfig = {
   moduleNameMapper: {
     '#tests/(.*)': `<rootDir>/tests/$1`,
     '#src/(.*)': `<rootDir>/src/$1`,
+    '^@/(.*)$': `<rootDir>/$1`,
   },
   transformIgnorePatterns: [],
-  modulePathIgnorePatterns: ['dist'],
+  modulePathIgnorePatterns: ['dist', 'build'],
   testTimeout: 120_000,
   coverageDirectory: '.coverage',
   coverageReporters: ['lcov'],

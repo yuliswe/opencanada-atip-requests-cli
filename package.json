@@ -1,11 +1,13 @@
 {
-  "name": "my-app",
-  "version": "0.0.1",
-  "description": "My App Template",
+  "name": "opencanada-atip-requests-cli",
+  "version": "0.1.0",
+  "description": "CLI for managing Canadian ATIP requests: search completed ATI summaries via the open.canada.ca API and walk browser-only portal steps",
   "type": "module",
   "scripts": {
     "test": "jest",
     "start": "nodemon --config nodemon.json",
+    "build": "tsc",
+    "cli": "tsx bin/cli.ts",
     "postinstall": "scripts/postinstall.sh"
   },
   "repository": {},
@@ -36,5 +38,9 @@
     "ts-jest": "^29.4.12",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^14.0.3"
   }
 }

@@ -1,0 +1,43 @@
+#!/usr/bin/env npx tsx
+
+import { Command } from 'commander';
+import process from 'node:process';
+import { createInformalCommand } from '@/commands/informal/command';
+import { createOrgsCommand } from '@/commands/orgs/command';
+import { createPortalCommand } from '@/commands/portal/command';
+import { createRequestCommandGroup } from '@/commands/request/group';
+import { createSearchCommand } from '@/commands/search/command';
+import { printErr } from '@/utils/render';
+
+const program = new Command();
+
+program
+  .name('atip')
+  .description(
+    'Manage Canadian access-to-information (ATIP) requests: search published ' +
+      'summaries through the open.canada.ca API, and hand browser-only ' +
+      'portal steps (sign-in, payment, forms) to the user before continuing.'
+  )
+  .version('0.1.0');
+
+program.addCommand(createInformalCommand());
+program.addCommand(createOrgsCommand());
+program.addCommand(createPortalCommand());
+program.addCommand(createRequestCommandGroup());
+program.addCommand(createSearchCommand());
+
+void (async () => {
+  try {
+    await program.parseAsync();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // Network failures from fetch bury the useful detail in `cause`.
+    const cause =
+      e instanceof Error && e.cause instanceof Error
+        ? ` (${e.cause.message})`
+        : '';
+    printErr(`${msg}${cause}`);
+    process.exit(1);
+  }
+  process.exit(0);
+})();

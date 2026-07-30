@@ -1,0 +1,4 @@
+#!/bin/sh
+
+BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$BIN_DIR/../node_modules/.bin/tsx" "$BIN_DIR/cli.ts" "$@"
