@@ -35,9 +35,10 @@ Pure local subcommands (`--help`, `logout`, `request list/show/update/remove`, `
 
 ## Authenticated portal commands
 
-`atip login` captures the user's ATIP Online session: the portal auth cookie is HttpOnly, so login opens the browser and reads a pasted `Cookie:` header via a hidden prompt, then stores it at `~/.atip-cli/session.json` (mode 0600). `request sync` calls the portal's `GetMyRequestsList` endpoint with that cookie and upserts the results into the tracker.
+`atip login` captures the user's ATIP Online session. By default it drives the user's own Chrome with Playwright (`playwright-core`, `channel: 'chrome'`, `launchPersistentContext` at `~/.atip-cli/chrome-profile`) and reads the HttpOnly cookie via `context.cookies()` (`utils/playwrightLogin.ts`); `--paste` is the fallback that reads a pasted `Cookie:` header via a hidden prompt. Either way the session is stored at `~/.atip-cli/session.json` (mode 0600). `request sync` calls the portal's `GetMyRequestsList` endpoint with that cookie and upserts the results into the tracker.
 
-- Both need the real user session and network, so you cannot exercise them end-to-end from the sandbox — unit-test the parsing (`utils/portal.ts`) with a mocked `globalThis.fetch` instead (see `tests/portal.test.ts`).
+- The browser login opens a visible window and needs a display and a real interactive login, so it cannot run in the sandbox or a headless/bg context — the SIGTRAP/`launch-chrome-as-yuli` caveats apply to browsers the sandbox user launches. Have the user run `atip login` themselves. The pure cookie→session logic (`cookiesToSession`) is unit-tested without Playwright.
+- The portal calls need the real user session and network, so you cannot exercise them end-to-end from the sandbox — unit-test the parsing (`utils/portal.ts`) with a mocked `globalThis.fetch` instead (see `tests/portal.test.ts`).
 - `SessionExpiredError` is thrown when a portal response redirects to sign-in; the CLI boundary prints "run atip login again". Don't swallow it lower down.
 - The `GetMyRequestsList` JSON row shape was reverse-engineered from the rendered table; `parseRow` handles array and object rows and drops rows with no detail link. If the portal changes shape, `request sync --json` dumps the raw response for re-mapping.
 

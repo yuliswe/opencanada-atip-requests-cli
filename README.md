@@ -29,6 +29,9 @@ portal every time.
 - No accounts or API keys for searching — the open.canada.ca CKAN API is
   public and read-only. Formal requests need an ATIP Online account
   (Sign-In Canada / CanadaLogin), created in the browser.
+- **Google Chrome** for `atip login` (it drives your installed Chrome via
+  Playwright — no separate browser download). The `--paste` fallback needs no
+  Chrome.
 
 ## What the CLI can and cannot automate
 
@@ -146,8 +149,9 @@ CanadaLogin flow (with MFA) cannot be automated, you sign in once in the
 browser and hand the CLI your session:
 
 ```sh
-atip login          # Opens the portal; paste your session cookie once (hidden input)
-atip login --check  # Verify the stored session still works
+atip login          # Opens Chrome, you sign in, the CLI captures the session
+atip login --paste  # Fallback: paste the session cookie from DevTools instead
+atip login --check  # Verify the stored session still works (and show its expiry)
 atip request sync   # List live requests, updating the local tracker in place
 atip request sync --json   # Raw portal response, if you want to script against it
 atip logout         # Delete the stored session
@@ -156,15 +160,24 @@ atip logout         # Delete the stored session
 How `atip login` works and why:
 
 - The portal authenticates with an **HttpOnly `.AspNetCore.Cookies` session
-  cookie**, which by design no script can read. So you copy it once: after
-  signing in, open your browser's DevTools → Network tab, click any request to
-  `atip-aiprp.tbs-sct.gc.ca`, and copy the whole `Cookie:` request header.
-- The cookie is stored at `~/.atip-cli/session.json` with `0600` permissions
-  (owner read/write only). It is never sent anywhere except back to
-  `atip-aiprp.tbs-sct.gc.ca`.
+  cookie**, which by design no page script can read. `atip login` drives your
+  own Google Chrome with Playwright (via `channel: 'chrome'`, so no browser
+  download): a window opens, you complete Sign-In Canada / CanadaLogin with
+  MFA, and the CLI reads the cookie jar — HttpOnly cookies included — through
+  Playwright's `context.cookies()`.
+- The sign-in uses a dedicated Chrome profile under `~/.atip-cli/chrome-profile`
+  (separate from your everyday browser). Keeping it lets a future run reuse the
+  still-live Sign-In Canada session to re-mint the portal cookie without
+  re-entering credentials — the only renewal possible, since the portal issues
+  no refresh token.
+- The captured cookie is stored at `~/.atip-cli/session.json` with `0600`
+  permissions (owner read/write only), and is never sent anywhere except back
+  to `atip-aiprp.tbs-sct.gc.ca`.
+- `--paste` is the zero-Playwright fallback: after signing in yourself, open
+  DevTools → Network, click any request to `atip-aiprp.tbs-sct.gc.ca`, and
+  paste the whole `Cookie:` request header (hidden input).
 - Portal sessions are short-lived. When yours lapses, `sync` tells you to run
-  `atip login` again. (Automatic renewal via a managed browser profile is
-  planned; see the code comments in `utils/portal.ts`.)
+  `atip login` again.
 
 `request sync` keys on the portal's internal request id, so re-running it
 updates existing tracked requests in place and appends a note whenever a

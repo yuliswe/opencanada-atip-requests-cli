@@ -21,8 +21,42 @@ export type PortalSession = {
 };
 
 export function getSessionFilePath(): string {
-  const home = getEnv().ATIP_CLI_HOME ?? path.join(os.homedir(), '.atip-cli');
-  return path.join(home, 'session.json');
+  return path.join(getAtipHome(), 'session.json');
+}
+
+export function getAtipHome(): string {
+  return getEnv().ATIP_CLI_HOME ?? path.join(os.homedir(), '.atip-cli');
+}
+
+// The subset of a captured browser cookie the session needs. Structurally
+// compatible with Playwright's Cookie type, kept local so this module (and its
+// tests) do not depend on Playwright.
+export type CapturedCookie = {
+  name: string;
+  value: string;
+  expires: number;
+};
+
+// Builds a stored session from a captured cookie jar. expiresAt is the
+// earliest expiry among the ASP.NET auth cookies; session cookies report a
+// negative expiry and are ignored, leaving expiresAt null so expiry is
+// detected at request time by the sign-in redirect instead.
+export function cookiesToSession(
+  cookies: CapturedCookie[],
+  capturedAt: string
+): PortalSession {
+  const cookie = cookies
+    .filter(c => c.value)
+    .map(c => `${c.name}=${c.value}`)
+    .join('; ');
+  const authExpiries = cookies
+    .filter(c => c.name.startsWith('.AspNetCore.Cookies') && c.expires > 0)
+    .map(c => c.expires);
+  const expiresAt =
+    authExpiries.length > 0
+      ? new Date(Math.min(...authExpiries) * 1000).toISOString()
+      : null;
+  return { cookie, headers: {}, expiresAt, capturedAt };
 }
 
 export function loadSession(): PortalSession | null {

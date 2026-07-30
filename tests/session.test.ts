@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import process from 'node:process';
 import {
   clearSession,
+  cookiesToSession,
   getSessionFilePath,
   hasUsableSession,
   isSessionExpired,
@@ -86,5 +87,44 @@ describe('session', () => {
     expect(hasUsableSession(now)).toBe(true);
     saveSession(sampleSession({ expiresAt: '2026-07-30T11:00:00.000Z' }));
     expect(hasUsableSession(now)).toBe(false);
+  });
+});
+
+describe('cookiesToSession', () => {
+  it('joins cookies into a header and skips empty values', () => {
+    const session = cookiesToSession(
+      [
+        { name: '.AspNetCore.Cookies', value: 'abc', expires: -1 },
+        { name: 'TSxyz', value: '', expires: -1 },
+        { name: '.AspNetCore.Antiforgery.k', value: 'def', expires: -1 },
+      ],
+      '2026-07-30T00:00:00.000Z'
+    );
+    expect(session.cookie).toBe(
+      '.AspNetCore.Cookies=abc; .AspNetCore.Antiforgery.k=def'
+    );
+    expect(session.capturedAt).toBe('2026-07-30T00:00:00.000Z');
+  });
+
+  it('takes the earliest auth-cookie expiry, ignoring session cookies', () => {
+    const session = cookiesToSession(
+      [
+        { name: '.AspNetCore.CookiesC1', value: 'a', expires: 1_800_000_100 },
+        { name: '.AspNetCore.CookiesC2', value: 'b', expires: 1_800_000_050 },
+        { name: 'TSlb', value: 'c', expires: 1_700_000_000 },
+      ],
+      '2026-07-30T00:00:00.000Z'
+    );
+    expect(session.expiresAt).toBe(
+      new Date(1_800_000_050 * 1000).toISOString()
+    );
+  });
+
+  it('leaves expiry null when auth cookies are session-scoped', () => {
+    const session = cookiesToSession(
+      [{ name: '.AspNetCore.Cookies', value: 'a', expires: -1 }],
+      '2026-07-30T00:00:00.000Z'
+    );
+    expect(session.expiresAt).toBeNull();
   });
 });
