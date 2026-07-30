@@ -213,11 +213,23 @@ status changes, rather than creating duplicates.
 
 ### portal
 
-Open ATIP Online (atip-aiprp.tbs-sct.gc.ca) in the browser.
+Open ATIP Online (atip-aiprp.tbs-sct.gc.ca) in a Chrome window that is already
+signed in. The window runs on the CLI's own persistent Chrome profile (the one
+`atip login` signs into), and when that profile holds no live auth cookie the
+stored session from `atip login` is injected into it, so the portal opens
+without asking you to sign in again. The command blocks until you close the
+window.
 
 ```sh
-atip portal
+atip portal open                                            # Portal home, signed in
+atip portal open --url https://atip-aiprp.tbs-sct.gc.ca/en  # A specific portal page
 ```
+
+This cannot sign in your day-to-day browser: Chrome offers no way to hand a
+cookie to a running instance, page scripts cannot set an HttpOnly cookie, and
+DevTools-protocol injection is blocked on the default profile. A dedicated
+profile driven by playwright-core is the only route, so bookmarks and
+extensions from your personal profile will not be there.
 
 ## Data sources and portals
 

@@ -6,10 +6,12 @@ import {
   clearSession,
   cookiesToSession,
   getSessionFilePath,
+  hasAuthCookie,
   hasUsableSession,
   isSessionExpired,
   loadSession,
   saveSession,
+  sessionCookieToCookiePairs,
   type PortalSession,
 } from '@/utils/session';
 
@@ -136,5 +138,39 @@ describe('cookiesToSession', () => {
       '2026-07-30T00:00:00.000Z'
     );
     expect(session.expiresAt).toBeNull();
+  });
+});
+
+describe('sessionCookieToCookiePairs', () => {
+  it('round-trips a header built by cookiesToSession', () => {
+    const session = cookiesToSession(
+      [
+        { name: '.AspNetCore.Cookies', value: 'abc', expires: -1 },
+        { name: '.AspNetCore.Antiforgery.k', value: 'def', expires: -1 },
+      ],
+      '2026-07-30T00:00:00.000Z'
+    );
+    expect(sessionCookieToCookiePairs(session.cookie ?? '')).toEqual([
+      { name: '.AspNetCore.Cookies', value: 'abc' },
+      { name: '.AspNetCore.Antiforgery.k', value: 'def' },
+    ]);
+  });
+
+  it('keeps "=" inside values and drops malformed parts', () => {
+    expect(
+      sessionCookieToCookiePairs('a=b=c; ; =nameless; d=; TSlb=x')
+    ).toEqual([
+      { name: 'a', value: 'b=c' },
+      { name: 'd', value: '' },
+      { name: 'TSlb', value: 'x' },
+    ]);
+  });
+});
+
+describe('hasAuthCookie', () => {
+  it('detects the ASP.NET auth cookie by prefix', () => {
+    expect(hasAuthCookie([{ name: '.AspNetCore.CookiesC1' }])).toBe(true);
+    expect(hasAuthCookie([{ name: '.AspNetCore.Antiforgery.k' }])).toBe(false);
+    expect(hasAuthCookie([])).toBe(false);
   });
 });

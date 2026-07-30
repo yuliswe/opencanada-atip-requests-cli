@@ -3,6 +3,7 @@ import { chromium } from 'playwright-core';
 import {
   cookiesToSession,
   getAtipHome,
+  hasAuthCookie,
   type PortalSession,
 } from '@/utils/session';
 import { ATIP_ONLINE_ORIGIN, ATIP_ONLINE_PORTAL_URL } from '@/utils/urls';
@@ -20,12 +21,6 @@ const POLL_INTERVAL_MS = 2_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// The auth cookie is only present once the OIDC round trip completes, so its
-// appearance is a reliable, page-agnostic sign-in signal.
-function hasAuthCookie(cookies: { name: string }[]): boolean {
-  return cookies.some(c => c.name.startsWith('.AspNetCore.Cookies'));
 }
 
 // Drives the user's own Chrome (no browser download) through an interactive

@@ -37,6 +37,28 @@ export type CapturedCookie = {
   expires: number;
 };
 
+// The auth cookie is only present once the OIDC round trip completes, so its
+// presence in a cookie jar is a reliable signed-in signal.
+export function hasAuthCookie(cookies: { name: string }[]): boolean {
+  return cookies.some(c => c.name.startsWith('.AspNetCore.Cookies'));
+}
+
+// Splits a serialized "name=value; name2=value2" cookie header back into
+// pairs so a stored session can be re-injected into a browser cookie jar.
+// Cookie values cannot contain ";", so the split is lossless.
+export function sessionCookieToCookiePairs(
+  cookie: string
+): { name: string; value: string }[] {
+  return cookie
+    .split(';')
+    .map(part => part.trim())
+    .filter(part => part.indexOf('=') > 0)
+    .map(part => {
+      const eq = part.indexOf('=');
+      return { name: part.slice(0, eq), value: part.slice(eq + 1) };
+    });
+}
+
 // Builds a stored session from a captured cookie jar. expiresAt is the
 // earliest expiry among the ASP.NET auth cookies; session cookies report a
 // negative expiry and are ignored, leaving expiresAt null so expiry is
