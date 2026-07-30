@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import process from 'node:process';
 import {
   fetchRequestList,
-  fetchRequestListRaw,
+  fetchRequestListDiagnostics,
   type PortalRequestSummary,
 } from '@/utils/portal';
 import { print, printErr, printLongOutput } from '@/utils/render';
@@ -40,8 +40,16 @@ export function createSyncCommand(): Command {
       }
 
       if (options.json) {
-        const raw = await fetchRequestListRaw(session);
-        print(JSON.stringify(raw, null, 2));
+        const diag = await fetchRequestListDiagnostics(session);
+        print(
+          chalk.dim(
+            `status=${diag.status} content-type=${diag.contentType} ` +
+              `antiforgery-token=${diag.tokenFound ? 'found' : 'NOT found'} ` +
+              `final-url=${diag.finalUrl}`
+          )
+        );
+        print('');
+        print(diag.body);
         return;
       }
 

@@ -149,10 +149,12 @@ function parseRow(row: unknown): PortalRequestSummary | null {
   };
 }
 
-export async function fetchRequestListRaw(
-  session: PortalSession
-): Promise<DataTablesResponse> {
-  const token = await fetchAntiforgeryToken(session);
+const GET_MY_REQUESTS_PATH = '/en/YourRequestList/GetMyRequestsList';
+
+async function postRequestList(
+  session: PortalSession,
+  token: string | null
+): Promise<Response> {
   const body = new URLSearchParams({
     draw: '1',
     start: '0',
@@ -172,17 +174,64 @@ export async function fetchRequestListRaw(
   if (token) {
     headers.RequestVerificationToken = token;
   }
-  const response = await fetchWithTimeout(
-    `${ATIP_ONLINE_ORIGIN}/en/YourRequestList/GetMyRequestsList`,
-    { method: 'POST', headers, body: body.toString() }
+  return await fetchWithTimeout(
+    `${ATIP_ONLINE_ORIGIN}${GET_MY_REQUESTS_PATH}`,
+    {
+      method: 'POST',
+      headers,
+      body: body.toString(),
+    }
   );
+}
+
+export type RequestListDiagnostics = {
+  tokenFound: boolean;
+  status: number;
+  finalUrl: string;
+  contentType: string;
+  body: string;
+};
+
+// Returns the raw list response without parsing, for `--json` and for
+// diagnosing why the portal answered with something other than JSON (an HTML
+// error or sign-in page). Does not throw on an unexpected response.
+export async function fetchRequestListDiagnostics(
+  session: PortalSession
+): Promise<RequestListDiagnostics> {
+  const token = await fetchAntiforgeryToken(session);
+  const response = await postRequestList(session, token);
+  return {
+    tokenFound: token !== null,
+    status: response.status,
+    finalUrl: response.url,
+    contentType: response.headers.get('content-type') ?? '',
+    body: await response.text(),
+  };
+}
+
+export async function fetchRequestListRaw(
+  session: PortalSession
+): Promise<DataTablesResponse> {
+  const token = await fetchAntiforgeryToken(session);
+  const response = await postRequestList(session, token);
   assertStillAuthed(response);
   if (!response.ok) {
     throw new Error(
       `ATIP Online returned HTTP ${response.status} when listing requests.`
     );
   }
-  return (await response.json()) as DataTablesResponse;
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as DataTablesResponse;
+  } catch {
+    const contentType = response.headers.get('content-type') ?? 'unknown';
+    throw new Error(
+      `Expected JSON from the request list but got ${contentType} ` +
+        `(${text.length} bytes). The antiforgery token was ` +
+        `${token ? 'found' : 'NOT found'}. ` +
+        'Run "atip request sync --json" to see the raw response.'
+    );
+  }
 }
 
 export async function fetchRequestList(
