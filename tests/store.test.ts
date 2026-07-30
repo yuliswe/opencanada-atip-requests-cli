@@ -151,16 +151,18 @@ describe('upsertPortalRequest', () => {
     institution: 'IRCC',
     summary: 'IRCC-security-screening-simple-stats',
     portalStatus: 'In progress',
+    newMessages: 0,
     url: 'https://atip-aiprp.tbs-sct.gc.ca/en/YourRequestDetails/Index/550889',
   };
 
-  it('creates a tracked request on first sync', () => {
-    const result = upsertPortalRequest(portalInput);
+  it('creates a tracked request on first refresh', () => {
+    const result = upsertPortalRequest({ ...portalInput, newMessages: 3 });
     expect(result.created).toBe(true);
     expect(result.request.portalId).toBe('550889');
     expect(result.request.requestNumber).toBe('EA2026_0160384');
     expect(result.request.status).toBe('in-progress');
     expect(result.request.portalStatus).toBe('In progress');
+    expect(result.request.newMessages).toBe(3);
     expect(loadStore().requests).toHaveLength(1);
   });
 

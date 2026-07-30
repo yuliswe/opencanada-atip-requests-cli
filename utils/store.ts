@@ -30,12 +30,14 @@ export type TrackedRequest = {
   summary: string;
   status: TrackedStatus;
   url: string | null;
-  // Portal identity, set when a request is synced from ATIP Online. portalId
-  // is the portal's internal numeric id (stable across syncs); portalStatus is
-  // its raw status string, kept verbatim because the portal's vocabulary does
-  // not map one-to-one onto TrackedStatus.
+  // Portal identity, set when a request is refreshed from ATIP Online. portalId
+  // is the portal's internal numeric id (stable across refreshes); portalStatus
+  // is its raw status string, kept verbatim because the portal's vocabulary
+  // does not map one-to-one onto TrackedStatus; newMessages is the unread count
+  // last seen on the portal (0 for requests not sourced from it).
   portalId: string | null;
   portalStatus: string | null;
+  newMessages: number;
   createdAt: string;
   updatedAt: string;
   notes: TrackedNote[];
@@ -114,6 +116,7 @@ export function addRequest(fields: {
     ...fields,
     portalId: fields.portalId ?? null,
     portalStatus: fields.portalStatus ?? null,
+    newMessages: 0,
     id: store.nextId,
     createdAt: now,
     updatedAt: now,
@@ -154,6 +157,7 @@ export type PortalUpsert = {
   institution: string;
   summary: string;
   portalStatus: string;
+  newMessages: number;
   url: string;
 };
 
@@ -183,6 +187,7 @@ export function upsertPortalRequest(input: PortalUpsert): {
       url: input.url,
       portalId: input.portalId,
       portalStatus: input.portalStatus,
+      newMessages: input.newMessages,
       createdAt: now,
       updatedAt: now,
       notes: [],
@@ -195,6 +200,7 @@ export function upsertPortalRequest(input: PortalUpsert): {
 
   const statusChanged = existing.portalStatus !== input.portalStatus;
   existing.portalStatus = input.portalStatus;
+  existing.newMessages = input.newMessages;
   if (mapped) {
     existing.status = mapped;
   }

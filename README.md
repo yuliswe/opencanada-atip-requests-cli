@@ -118,13 +118,14 @@ shown by `list`, or the portal request number.
 atip request new                            # Submit a formal request via the browser, then track it
 atip request new -i "Health Canada" -s "…"  # Pre-fill institution and summary
 
-atip request list                           # All tracked requests
+atip request list                           # Refresh from the portal, then show (needs `atip login`)
+atip request ls                             # `ls` is an alias for `list`
+atip request list --cached                  # Show the local cache only (offline, no portal)
 atip request list --status records-ready    # Filter by status
-atip request list --json                    # Raw records for scripting
+atip request list --json                    # Requests as JSON for scripting
 atip request show 1                         # Full detail, including notes
 
-atip request status 1                       # Re-check on the portal, record what you see
-atip request sync                           # Pull live status for all requests (needs `atip login`)
+atip request status 1                       # Manually record a status you read yourself
 atip request update 1 --status acknowledged --note "Email received"
 atip request update 1 --number A-2026-00123 # Fill in the number once assigned
 atip request remove 1
@@ -136,29 +137,37 @@ Statuses: `submitted`, `acknowledged`, `in-progress`, `extended`,
 `request new` is a browser hand-off: submission needs Sign-In Canada /
 CanadaLogin and (for formal ATI requests) the $5 Moneris payment, neither of
 which has an API. `request status` is the manual, no-login way to record a
-status you read yourself; `request sync` is the automated version once you have
-run `atip login`. Download released records promptly — ATIP Online retains them
-for only two years after completion, so the local tracker plus your downloads
-are the durable copy.
+status you read yourself. Download released records promptly — ATIP Online
+retains them for only two years after completion, so the local tracker plus
+your downloads are the durable copy.
 
 ## Managing your own requests (authenticated)
 
-`atip request sync` reads your open requests and their live status directly
-from ATIP Online. Because the portal has no public API and its Sign-In Canada /
-CanadaLogin flow (with MFA) cannot be automated, you sign in once in the
-browser and hand the CLI your session:
+`atip request list` reads your open requests and their live status directly
+from ATIP Online, caches the result locally, and shows it; `--cached` skips the
+portal and reads only the cache (offline, or when your session has lapsed).
+Because the portal has no public API and its Sign-In Canada / CanadaLogin flow
+(with MFA) cannot be automated, you sign in once in the browser and hand the
+CLI your session:
 
 ```sh
 atip login          # Opens Chrome, you sign in, the CLI captures the session
 atip login --paste  # Fallback: paste the session cookie from DevTools instead
 atip login --check  # Verify the stored session still works (and show its expiry)
-atip request sync   # List live requests, updating the local tracker in place
-atip request sync --json   # Parsed requests as JSON (for scripting)
-atip request sync --raw    # Raw portal response + diagnostics (for debugging)
+atip request list          # Live refresh + cache + show (falls back to cache if the session lapsed)
+atip request list --cached # Cache only, no portal contact
+atip request list --json   # Requests as JSON (for scripting)
+atip request list --raw    # Raw portal response + diagnostics (for debugging)
 atip session refresh       # Extend the session once (keep it from timing out)
 atip session keepalive     # Refresh on a loop until Ctrl-C (default every 15 min)
 atip logout         # Delete the stored session
 ```
+
+`atip request list` is a write-through cache: it fetches the live list, upserts
+each request into the local tracker (keyed on the portal's internal id, keeping
+your notes and any informal requests intact), and renders the tracker. When
+there is no session or it has expired, it prints a note and shows the cached
+copy instead of failing, so the command still works offline.
 
 ### Keeping the session alive
 
@@ -195,10 +204,10 @@ How `atip login` works and why:
 - `--paste` is the zero-Playwright fallback: after signing in yourself, open
   DevTools → Network, click any request to `atip-aiprp.tbs-sct.gc.ca`, and
   paste the whole `Cookie:` request header (hidden input).
-- Portal sessions are short-lived. When yours lapses, `sync` tells you to run
-  `atip login` again.
+- Portal sessions are short-lived. When yours lapses, `list` falls back to the
+  cached copy and tells you to run `atip login` again.
 
-`request sync` keys on the portal's internal request id, so re-running it
+`atip request list` keys on the portal's internal request id, so refreshing
 updates existing tracked requests in place and appends a note whenever a
 status changes, rather than creating duplicates.
 
@@ -221,7 +230,7 @@ atip portal
   submission flow is browser-only.
 - Live request status: ATIP Online's own `GetMyRequestsList` and
   `YourRequestDetails` endpoints, called with your captured session cookie by
-  `atip request sync`.
+  `atip request list`.
 - Note that IRCC (immigration) requests are filed on IRCC's own portal, not
   ATIP Online; you can still track them here with `atip request new`.
 
