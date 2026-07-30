@@ -1,47 +1,142 @@
-# opencanada-atip-requests-cli
+# ATIP CLI
 
-A CLI (`atip`) for managing Canadian access-to-information (ATIP) requests.
-Everything that has a public API is automated through the read-only CKAN API of
-open.canada.ca, which requires no key. Every step that has no API — signing in
-to ATIP Online, paying the $5 application fee, submitting web forms, reading
-request status — is handed to you in the browser, and the CLI continues once
-you confirm the step is done.
+Manage your Canadian access-to-information (ATIP) requests from the terminal.
+Stop losing track of request numbers in email threads and re-navigating the
+portal every time.
+
+- 🔎 **Search completed ATI requests** on open.canada.ca straight from the
+  terminal — by keyword, institution, year, or month.
+- 🆓 **Get records for free** — if someone already obtained the records you
+  want, an informal request costs nothing; the CLI finds the record and opens
+  the request form for you.
+- 📝 **File formal requests** — the CLI walks you through ATIP Online and
+  records the request number when you are done.
+- 📋 **Track every request locally** — status, notes, and dates live in a
+  local JSON file, which matters because ATIP Online deletes responses two
+  years after completion.
+- 🌐 **Browser hand-off for the rest** — anything without a public API
+  (sign-in, the $5 fee, web forms, status pages) opens in your browser, and
+  the CLI continues once you confirm the step is done.
+
+## Requirements
+
+- **MacOS** (browser hand-off also has Linux/Windows openers, but only MacOS
+  is tested)
+- **zsh** with the repo `.zshrc` sourcing set up (see
+  [Start development](#start-development)) so `atip` is on your `PATH`
+- No accounts or API keys for searching — the open.canada.ca CKAN API is
+  public and read-only. Formal requests need an ATIP Online account
+  (Sign-In Canada / CanadaLogin), created in the browser.
+
+## What the CLI can and cannot automate
+
+**Automated via API** — searching completed request summaries, listing
+institutions, and looking up records (read-only CKAN datastore on
+open.canada.ca).
+
+**Browser hand-off** — submitting requests (formal or informal), paying the
+$5 application fee (Moneris), and checking status on the portal. The CLI
+prints the steps, opens the page, waits for you to finish, then records the
+outcome locally.
+
+## Setup
+
+```sh
+# 1. One-time repo setup (provisions Node into .nodevenv — see
+#    "Start development" below)
+./initenv.bash
+
+# 2. Start a new terminal session in the repo. The repo .zshrc activates the
+#    toolchain and puts bin/atip on your PATH.
+atip --help
+```
 
 ## Usage
 
-Run commands with `atip` (added to `PATH` by `.zshrc`) or `npm run cli --`.
-
-```
-# Find completed ATI requests published on open.canada.ca
-atip search immigration processing times
-atip search backlog -o cic -y 2025 -l 5
-atip orgs immigration            # look up institution slugs for -o
-
-# Ask for a free copy of records someone else already obtained. The CLI finds
-# the record, opens the "Request a copy of records" form in the browser, and
-# tracks the request locally after you submit it.
-atip informal A-2023-02215 -o cic
-
-# File a new formal request. The portal part (sign-in, institution, $5 fee)
-# happens in the browser; the CLI then records the request number you got.
-atip request new
-
-# Track your requests locally. ATIP Online only retains responses for two
-# years after completion, so the local tracker is the durable copy.
-atip request list
-atip request show 1
-atip request status 1            # re-check on the portal, record what you see
-atip request update 1 --status records-ready --note "Email received"
-atip request remove 1
-
-# Open ATIP Online directly
-atip portal
+```sh
+atip <command> [options]
 ```
 
 Tracked requests are stored in `~/.atip-cli/requests.json` (override the
 directory with `ATIP_CLI_HOME`).
 
-### Data sources and portals
+## Commands
+
+### search
+
+Search summaries of completed ATI requests published on open.canada.ca
+(January 2020 onward). Anything you find can be re-requested for free with
+`atip informal`.
+
+```sh
+atip search immigration processing times   # Full-text search
+atip search backlog -o cic                 # Only one institution (slug from `atip orgs`)
+atip search -o ircc-cisr -y 2025 -m 6      # Everything an institution published in a month
+atip search housing -l 50                  # More results (default 25)
+atip search housing --offset 25            # Next page
+atip search santé --fr                     # Show French summaries
+atip search housing --json                 # Raw records for scripting
+```
+
+### orgs
+
+List the institution slugs that `search -o` and `informal -o` accept.
+
+```sh
+atip orgs               # All institutions on the open government portal
+atip orgs immigration   # Filter by slug or title
+```
+
+### informal
+
+Request a free copy of the records of a completed ATI request. The CLI looks
+the record up via the API, opens the "Request a copy of records" form in the
+browser, and tracks the request locally after you confirm you submitted it.
+
+```sh
+atip informal A-2023-02215           # Request number from `atip search`
+atip informal A-2023-02215 -o cic    # Disambiguate when several institutions share the number
+atip informal A-2023-02215 --no-track  # Don't record it in the local tracker
+```
+
+### request
+
+Track your own requests (formal and informal). `<ref>` is the tracker ID
+shown by `list`, or the portal request number.
+
+```sh
+atip request new                            # Submit a formal request via the browser, then track it
+atip request new -i "Health Canada" -s "…"  # Pre-fill institution and summary
+
+atip request list                           # All tracked requests
+atip request list --status records-ready    # Filter by status
+atip request list --json                    # Raw records for scripting
+atip request show 1                         # Full detail, including notes
+
+atip request status 1                       # Re-check on the portal, record what you see
+atip request update 1 --status acknowledged --note "Email received"
+atip request update 1 --number A-2026-00123 # Fill in the number once assigned
+atip request remove 1
+```
+
+Statuses: `submitted`, `acknowledged`, `in-progress`, `extended`,
+`records-ready`, `completed`, `abandoned`.
+
+`request new` and `request status` are browser hand-offs: submission needs
+Sign-In Canada / CanadaLogin and (for formal ATI requests) the $5 Moneris
+payment, neither of which has an API. Download released records promptly —
+ATIP Online retains them for only two years after completion, so the local
+tracker plus your downloads are the durable copy.
+
+### portal
+
+Open ATIP Online (atip-aiprp.tbs-sct.gc.ca) in the browser.
+
+```sh
+atip portal
+```
+
+## Data sources and portals
 
 - Search: `datastore_search` on the [Completed Access to Information Request
   Summaries dataset](https://open.canada.ca/data/en/dataset/0797e893-751e-4695-8229-a5066e4fe43c)
