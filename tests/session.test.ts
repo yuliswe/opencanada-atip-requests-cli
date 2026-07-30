@@ -57,6 +57,16 @@ describe('session', () => {
     expect(mode).toBe(0o600);
   });
 
+  it('honours ATIP_CLI_SESSION_MODE and relaxes the directory to match', () => {
+    process.env.ATIP_CLI_SESSION_MODE = '644';
+    saveSession(sampleSession());
+    const fileMode = fs.statSync(getSessionFilePath()).mode & 0o777;
+    const dirMode = fs.statSync(tempHome).mode & 0o777;
+    delete process.env.ATIP_CLI_SESSION_MODE;
+    expect(fileMode).toBe(0o644);
+    expect(dirMode).toBe(0o755);
+  });
+
   it('clears the session', () => {
     saveSession(sampleSession());
     clearSession();

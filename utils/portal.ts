@@ -15,6 +15,9 @@ export class SessionExpiredError extends Error {
 export type PortalRequestSummary = {
   // Internal numeric id used in detail URLs (/YourRequestDetails/Index/{id}).
   id: string;
+  // The portal's own request reference (e.g. EA2026_0160384), shown as
+  // "Request ID" in the UI.
+  referenceNumber: string;
   label: string;
   institution: string;
   type: string;
@@ -22,14 +25,6 @@ export type PortalRequestSummary = {
   status: string;
   newMessages: number;
   detailUrl: string;
-};
-
-// DataTables server-side response envelope.
-type DataTablesResponse = {
-  draw?: number;
-  recordsTotal?: number;
-  recordsFiltered?: number;
-  data?: unknown[];
 };
 
 function cookieHeader(session: PortalSession): string {
@@ -176,46 +171,63 @@ function stripHtml(cell: string): string {
     .trim();
 }
 
-function normalizeRow(row: unknown): string[] {
-  if (Array.isArray(row)) {
-    return row.map(cell => String(cell ?? ''));
+type TableCell = { attrs: string; inner: string };
+
+function parseCells(rowHtml: string): TableCell[] {
+  const cells: TableCell[] = [];
+  const re = /<td\b([^>]*)>([\s\S]*?)<\/td>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(rowHtml)) !== null) {
+    cells.push({ attrs: match[1], inner: match[2] });
   }
-  if (row && typeof row === 'object') {
-    return Object.values(row as Record<string, unknown>).map(cell =>
-      String(cell ?? '')
-    );
-  }
-  return [String(row ?? '')];
+  return cells;
 }
 
-// The list arrives as DataTables rows whose exact column order was
-// reverse-engineered from the rendered table (Request ID link, Label,
-// Institution, Type, Date submitted, Status, New messages). Fields are pulled
-// semantically where possible (id from the detail href, date by pattern) so a
-// column shift does not silently corrupt the mapping; `atip request sync
-// --json` exposes the raw rows if the portal ever changes shape.
-function parseRow(row: unknown): PortalRequestSummary | null {
-  const cells = normalizeRow(row);
-  const blob = cells.join(' ');
-  const idMatch = blob.match(/YourRequestDetails\/Index\/(\d+)/i);
-  if (!idMatch) {
-    return null;
+// GetMyRequestsList returns a rendered HTML <table> fragment (the custom
+// ATIP-Search.js injects it), not JSON. Each data row is a
+// <tr class="request_row"> whose first cell links to the detail page and
+// carries the reference number; status lives in a request-status-* class and
+// the date is a bare yyyy-mm-dd cell, so those are read semantically rather
+// than by fragile column index.
+export function parseRequestListRows(html: string): PortalRequestSummary[] {
+  const rows: PortalRequestSummary[] = [];
+  const rowRe = /<tr\b[^>]*\brequest_row\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  let rowMatch: RegExpExecArray | null;
+  while ((rowMatch = rowRe.exec(html)) !== null) {
+    const cells = parseCells(rowMatch[1]);
+    if (cells.length === 0) {
+      continue;
+    }
+    const link = cells[0].inner.match(
+      /href="\/en\/YourRequestDetails\/Index\/(\d+)[^"]*"[^>]*>([\s\S]*?)<\/a>/i
+    );
+    if (!link) {
+      continue;
+    }
+    const id = link[1];
+    const typeCell = cells[3]?.inner ?? '';
+    const typeTitle = typeCell.match(/title="([^"]+)"/i);
+    const statusCell = cells.find(c => /request-status-/.test(c.attrs));
+    const dateCell = cells.find(c =>
+      /^\d{4}-\d{2}-\d{2}$/.test(stripHtml(c.inner))
+    );
+    const newMessages = Number.parseInt(
+      stripHtml(cells[cells.length - 1]?.inner ?? ''),
+      10
+    );
+    rows.push({
+      id,
+      referenceNumber: stripHtml(link[2]),
+      label: stripHtml(cells[1]?.inner ?? ''),
+      institution: stripHtml(cells[2]?.inner ?? ''),
+      type: typeTitle ? typeTitle[1] : stripHtml(typeCell),
+      dateSubmitted: dateCell ? stripHtml(dateCell.inner) : '',
+      status: stripHtml(statusCell?.inner ?? cells[6]?.inner ?? ''),
+      newMessages: Number.isFinite(newMessages) ? newMessages : 0,
+      detailUrl: `${ATIP_ONLINE_ORIGIN}/en/YourRequestDetails/Index/${id}`,
+    });
   }
-  const id = idMatch[1];
-  const text = cells.map(stripHtml);
-  const dateCell = text.find(c => /^\d{4}-\d{2}-\d{2}/.test(c)) ?? '';
-  const newMessagesCell = text[text.length - 1] ?? '';
-  const parsedCount = Number.parseInt(newMessagesCell, 10);
-  return {
-    id,
-    label: text[1] ?? '',
-    institution: text[2] ?? '',
-    type: text[3] ?? '',
-    dateSubmitted: dateCell.slice(0, 10),
-    status: text[5] ?? '',
-    newMessages: Number.isFinite(parsedCount) ? parsedCount : 0,
-    detailUrl: `${ATIP_ONLINE_ORIGIN}/en/YourRequestDetails/Index/${id}`,
-  };
+  return rows;
 }
 
 const GET_MY_REQUESTS_PATH = '/en/YourRequestList/GetMyRequestsList';
@@ -284,9 +296,9 @@ export async function fetchRequestListDiagnostics(
   };
 }
 
-export async function fetchRequestListRaw(
+export async function fetchRequestListHtml(
   session: PortalSession
-): Promise<DataTablesResponse> {
+): Promise<string> {
   const context = await fetchAntiforgeryContext(session);
   assertOnRequestList(context.tokenGetUrl);
   const response = await postRequestList(session, context);
@@ -296,26 +308,11 @@ export async function fetchRequestListRaw(
       `ATIP Online returned HTTP ${response.status} when listing requests.`
     );
   }
-  const text = await response.text();
-  try {
-    return JSON.parse(text) as DataTablesResponse;
-  } catch {
-    const contentType = response.headers.get('content-type') ?? 'unknown';
-    throw new Error(
-      `Expected JSON from the request list but got ${contentType} ` +
-        `(${text.length} bytes). The antiforgery token was ` +
-        `${context.token ? 'found' : 'NOT found'}. ` +
-        'Run "atip request sync --json" to see the raw response.'
-    );
-  }
+  return await response.text();
 }
 
 export async function fetchRequestList(
   session: PortalSession
 ): Promise<PortalRequestSummary[]> {
-  const raw = await fetchRequestListRaw(session);
-  const rows = Array.isArray(raw.data) ? raw.data : [];
-  return rows
-    .map(parseRow)
-    .filter((row): row is PortalRequestSummary => row !== null);
+  return parseRequestListRows(await fetchRequestListHtml(session));
 }

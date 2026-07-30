@@ -150,6 +150,7 @@ export function mapPortalStatus(portalStatus: string): TrackedStatus | null {
 
 export type PortalUpsert = {
   portalId: string;
+  referenceNumber: string;
   institution: string;
   summary: string;
   portalStatus: string;
@@ -175,7 +176,7 @@ export function upsertPortalRequest(input: PortalUpsert): {
     const request: TrackedRequest = {
       id: store.nextId,
       kind: 'formal',
-      requestNumber: null,
+      requestNumber: input.referenceNumber || null,
       institution: input.institution,
       summary: input.summary,
       status: mapped ?? 'submitted',
@@ -196,6 +197,9 @@ export function upsertPortalRequest(input: PortalUpsert): {
   existing.portalStatus = input.portalStatus;
   if (mapped) {
     existing.status = mapped;
+  }
+  if (!existing.requestNumber && input.referenceNumber) {
+    existing.requestNumber = input.referenceNumber;
   }
   if (!existing.institution) {
     existing.institution = input.institution;

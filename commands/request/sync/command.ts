@@ -20,9 +20,10 @@ function summaryLine(summary: PortalRequestSummary, marker: string): string {
       ? chalk.yellow(`${summary.newMessages} new`)
       : chalk.dim('—');
   return (
-    `${marker} ${truncate(summary.label, 34).padEnd(35)} ` +
-    `${truncate(summary.institution, 24).padEnd(25)} ` +
-    `${summary.status.padEnd(14)} ${summary.dateSubmitted.padEnd(11)} ${messages}`
+    `${marker} ${summary.referenceNumber.padEnd(16)} ` +
+    `${truncate(summary.label, 30).padEnd(31)} ` +
+    `${truncate(summary.institution, 22).padEnd(23)} ` +
+    `${summary.status.padEnd(13)} ${summary.dateSubmitted.padEnd(11)} ${messages}`
   );
 }
 
@@ -31,15 +32,19 @@ export function createSyncCommand(): Command {
     .description(
       'Fetch your live requests from ATIP Online and update the local tracker'
     )
-    .option('--json', 'Print the raw portal response instead of syncing')
-    .action(async (options: { json?: boolean }) => {
+    .option('--json', 'Print the parsed requests as JSON instead of syncing')
+    .option(
+      '--raw',
+      'Print the raw portal response and request diagnostics (for debugging)'
+    )
+    .action(async (options: { json?: boolean; raw?: boolean }) => {
       const session = loadSession();
       if (!session) {
         printErr('No ATIP Online session. Run "atip login" first.');
         process.exit(1);
       }
 
-      if (options.json) {
+      if (options.raw) {
         const diag = await fetchRequestListDiagnostics(session);
         print(
           chalk.dim(
@@ -51,6 +56,12 @@ export function createSyncCommand(): Command {
         );
         print('');
         print(diag.body);
+        return;
+      }
+
+      if (options.json) {
+        const requests = await fetchRequestList(session);
+        print(JSON.stringify(requests, null, 2));
         return;
       }
 
@@ -69,6 +80,7 @@ export function createSyncCommand(): Command {
       for (const summary of summaries) {
         const result = upsertPortalRequest({
           portalId: summary.id,
+          referenceNumber: summary.referenceNumber,
           institution: summary.institution,
           summary: summary.label,
           portalStatus: summary.status,

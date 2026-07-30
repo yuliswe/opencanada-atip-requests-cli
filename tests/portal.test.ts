@@ -41,21 +41,34 @@ function mockResponse(
 const LIST_HTML =
   '<form><input name="__RequestVerificationToken" type="hidden" value="TOKEN-123" /></form>';
 
-function dataTablesRow(overrides: {
+// Mirrors the real GetMyRequestsList HTML fragment: a <tr class="request_row">
+// with a detail link carrying the id and reference number, then label,
+// institution, type (<abbr>), visible date, hidden datetime, status
+// (request-status-* class), and new-messages cells.
+function requestRow(overrides: {
   id: string;
+  reference: string;
   label: string;
-  status: string;
+  statusClass: string;
+  statusText: string;
+  date: string;
   newMessages: string;
-}): string[] {
-  return [
-    `<a href="/en/YourRequestDetails/Index/${overrides.id}?tab=S">View</a>`,
-    overrides.label,
-    'Immigration, Refugees and Citizenship Canada',
-    'Access to information request',
-    '2026-02-28 12:59:06',
-    overrides.status,
-    overrides.newMessages,
-  ];
+}): string {
+  return `
+    <tr class="request_row">
+      <td class="nowrap"><a href="/en/YourRequestDetails/Index/${overrides.id}?tab=S" title="View">${overrides.reference}</a></td>
+      <td class="col-md-2">${overrides.label}</td>
+      <td class="col-md-5">Immigration, Refugees and Citizenship Canada</td>
+      <td><abbr title="Access to information request">ATI</abbr></td>
+      <td class="nowrap">${overrides.date}</td>
+      <td class="nowrap hidden">${overrides.date} 12:59:06</td>
+      <td class="nowrap ${overrides.statusClass}">${overrides.statusText}<span class="glyphicon"></span></td>
+      <td class="nowrap text-center"><span>${overrides.newMessages}</span></td>
+    </tr>`;
+}
+
+function listTableHtml(rows: string[]): string {
+  return `<table class="dataTable"><thead><tr><th>Request ID</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
 }
 
 describe('verifySession', () => {
@@ -96,7 +109,7 @@ describe('verifySession', () => {
 describe('fetchRequestList', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it('scrapes the antiforgery token then parses DataTables rows', async () => {
+  it('scrapes the antiforgery token then parses the HTML table rows', async () => {
     const fetchSpy = jest
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -106,27 +119,28 @@ describe('fetchRequestList', () => {
       )
       .mockResolvedValueOnce(
         mockResponse(
-          JSON.stringify({
-            draw: 1,
-            recordsTotal: 2,
-            data: [
-              dataTablesRow({
-                id: '550889',
-                label: 'IRCC-security-screening-simple-stats',
-                status: 'In progress',
-                newMessages: 'N/A',
-              }),
-              dataTablesRow({
-                id: '548962',
-                label: 'IRCC-security-screening-data',
-                status: 'Closed',
-                newMessages: '2',
-              }),
-            ],
-          }),
+          listTableHtml([
+            requestRow({
+              id: '550889',
+              reference: 'EA2026_0160384',
+              label: 'IRCC-security-screening-simple-stats',
+              statusClass: 'request-status-in-progress',
+              statusText: 'In progress',
+              date: '2026-02-28',
+              newMessages: 'N/A',
+            }),
+            requestRow({
+              id: '548962',
+              reference: 'EA2026_0159900',
+              label: 'IRCC-security-screening-data',
+              statusClass: 'request-status-closed',
+              statusText: 'Closed',
+              date: '2026-02-25',
+              newMessages: '2',
+            }),
+          ]),
           {
             url: 'https://atip-aiprp.tbs-sct.gc.ca/en/YourRequestList/GetMyRequestsList',
-            contentType: 'application/json',
           }
         )
       );
@@ -143,6 +157,7 @@ describe('fetchRequestList', () => {
     expect(requests).toEqual([
       {
         id: '550889',
+        referenceNumber: 'EA2026_0160384',
         label: 'IRCC-security-screening-simple-stats',
         institution: 'Immigration, Refugees and Citizenship Canada',
         type: 'Access to information request',
@@ -154,10 +169,11 @@ describe('fetchRequestList', () => {
       },
       {
         id: '548962',
+        referenceNumber: 'EA2026_0159900',
         label: 'IRCC-security-screening-data',
         institution: 'Immigration, Refugees and Citizenship Canada',
         type: 'Access to information request',
-        dateSubmitted: '2026-02-28',
+        dateSubmitted: '2026-02-25',
         status: 'Closed',
         newMessages: 2,
         detailUrl:
@@ -166,7 +182,7 @@ describe('fetchRequestList', () => {
     ]);
   });
 
-  it('drops rows with no detail link', async () => {
+  it('returns nothing when the table has no request rows', async () => {
     jest
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -175,9 +191,8 @@ describe('fetchRequestList', () => {
         })
       )
       .mockResolvedValueOnce(
-        mockResponse(JSON.stringify({ data: [['no link here', 'x', 'y']] }), {
+        mockResponse(listTableHtml([]), {
           url: 'https://atip-aiprp.tbs-sct.gc.ca/en/YourRequestList/GetMyRequestsList',
-          contentType: 'application/json',
         })
       );
     await expect(fetchRequestList(SESSION)).resolves.toEqual([]);
@@ -194,9 +209,8 @@ describe('fetchRequestList', () => {
         })
       )
       .mockResolvedValueOnce(
-        mockResponse(JSON.stringify({ data: [] }), {
+        mockResponse(listTableHtml([]), {
           url: 'https://atip-aiprp.tbs-sct.gc.ca/en/YourRequestList/GetMyRequestsList',
-          contentType: 'application/json',
         })
       );
 

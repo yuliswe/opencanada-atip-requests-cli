@@ -147,6 +147,7 @@ describe('upsertPortalRequest', () => {
 
   const portalInput = {
     portalId: '550889',
+    referenceNumber: 'EA2026_0160384',
     institution: 'IRCC',
     summary: 'IRCC-security-screening-simple-stats',
     portalStatus: 'In progress',
@@ -157,6 +158,7 @@ describe('upsertPortalRequest', () => {
     const result = upsertPortalRequest(portalInput);
     expect(result.created).toBe(true);
     expect(result.request.portalId).toBe('550889');
+    expect(result.request.requestNumber).toBe('EA2026_0160384');
     expect(result.request.status).toBe('in-progress');
     expect(result.request.portalStatus).toBe('In progress');
     expect(loadStore().requests).toHaveLength(1);

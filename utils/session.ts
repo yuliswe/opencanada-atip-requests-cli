@@ -67,19 +67,42 @@ export function loadSession(): PortalSession | null {
   return JSON.parse(fs.readFileSync(file, 'utf-8')) as PortalSession;
 }
 
+// The session grants access to the user's ATIP account, so it defaults to
+// owner-read/write only (0600), the same convention as SSH keys and
+// ~/.aws/credentials. ATIP_CLI_SESSION_MODE overrides it (octal, e.g. "644")
+// for setups where another local user — such as a sandboxed agent — must read
+// the file; loosening it exposes a live credential, so it is opt-in.
+export function getSessionFileMode(): number {
+  const raw = getEnv().ATIP_CLI_SESSION_MODE;
+  if (!raw) {
+    return 0o600;
+  }
+  const parsed = Number.parseInt(raw, 8);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 0o777) {
+    throw new Error(
+      `Invalid ATIP_CLI_SESSION_MODE "${raw}" (expected an octal mode like 600 or 644).`
+    );
+  }
+  return parsed;
+}
+
 export function saveSession(session: PortalSession): void {
   const file = getSessionFilePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const fileMode = getSessionFileMode();
+  // The directory must be traversable by anyone allowed to read the file, so
+  // its execute bits mirror the file's read bits.
+  const dirMode = fileMode & 0o044 ? 0o755 : 0o700;
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: dirMode });
+  fs.chmodSync(path.dirname(file), dirMode);
   const tmp = `${file}.tmp`;
-  // The session grants access to the user's ATIP account, so it is written
-  // owner-read/write only. Perms are set on the fd before any content lands.
-  const fd = fs.openSync(tmp, 'w', 0o600);
+  // Perms are set on the fd before any content lands.
+  const fd = fs.openSync(tmp, 'w', fileMode);
   try {
     fs.writeSync(fd, `${JSON.stringify(session, null, 2)}\n`);
   } finally {
     fs.closeSync(fd);
   }
-  fs.chmodSync(tmp, 0o600);
+  fs.chmodSync(tmp, fileMode);
   fs.renameSync(tmp, file);
 }
 
