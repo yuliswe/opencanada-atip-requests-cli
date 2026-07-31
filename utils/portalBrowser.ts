@@ -1,5 +1,4 @@
-import { chromium } from 'playwright-core';
-import { getBrowserProfileDir } from '@/utils/playwrightLogin';
+import { launchPortalProfileContext } from '@/utils/playwrightLogin';
 import {
   hasAuthCookie,
   isSessionExpired,
@@ -20,10 +19,7 @@ export async function openPortalWindow(params: {
   onStatus?: (message: string) => void;
 }): Promise<void> {
   const onStatus = params.onStatus ?? (() => undefined);
-  const context = await chromium.launchPersistentContext(
-    getBrowserProfileDir(),
-    { headless: false, channel: 'chrome', viewport: null }
-  );
+  const context = await launchPortalProfileContext();
   try {
     const profileCookies = await context.cookies(ATIP_ONLINE_ORIGIN);
     if (!hasAuthCookie(profileCookies)) {

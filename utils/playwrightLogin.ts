@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { chromium } from 'playwright-core';
+import { type BrowserContext, chromium } from 'playwright-core';
 import {
   cookiesToSession,
   getAtipHome,
@@ -14,6 +14,19 @@ import { ATIP_ONLINE_ORIGIN, ATIP_ONLINE_PORTAL_URL } from '@/utils/urls';
 // token). Kept separate from the user's day-to-day Chrome profile.
 export function getBrowserProfileDir(): string {
   return path.join(getAtipHome(), 'chrome-profile');
+}
+
+// Launches the visible Chrome window every portal-facing command shares.
+// Playwright passes --disable-extensions by default; that default is dropped so
+// extensions installed in this profile (e.g. Claude in Chrome, for driving the
+// signed-in portal from an agent session) keep running.
+export function launchPortalProfileContext(): Promise<BrowserContext> {
+  return chromium.launchPersistentContext(getBrowserProfileDir(), {
+    channel: 'chrome',
+    headless: false,
+    ignoreDefaultArgs: ['--disable-extensions'],
+    viewport: null,
+  });
 }
 
 const SIGN_IN_TIMEOUT_MS = 5 * 60_000;
@@ -33,10 +46,7 @@ export async function captureSessionViaBrowser(options?: {
   onStatus?: (message: string) => void;
 }): Promise<PortalSession> {
   const onStatus = options?.onStatus ?? (() => undefined);
-  const context = await chromium.launchPersistentContext(
-    getBrowserProfileDir(),
-    { headless: false, channel: 'chrome', viewport: null }
-  );
+  const context = await launchPortalProfileContext();
   try {
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto(ATIP_ONLINE_PORTAL_URL, { waitUntil: 'domcontentloaded' });
