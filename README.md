@@ -228,7 +228,7 @@ atip portal open --url https://atip-aiprp.tbs-sct.gc.ca/en  # A specific portal 
 This cannot sign in your day-to-day browser: Chrome offers no way to hand a
 cookie to a running instance, page scripts cannot set an HttpOnly cookie, and
 DevTools-protocol injection is blocked on the default profile. A dedicated
-profile driven by playwright-core is the only route, so bookmarks and
+profile driven by patchright-core is the only route, so bookmarks and
 extensions from your personal profile will not be there.
 
 ## Data sources and portals

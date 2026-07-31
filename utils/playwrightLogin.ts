@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { type BrowserContext, chromium } from 'playwright-core';
+import { type BrowserContext, chromium } from 'patchright-core';
 import {
   cookiesToSession,
   getAtipHome,
