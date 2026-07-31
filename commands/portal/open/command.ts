@@ -13,7 +13,7 @@ export function createOpenCommand(): Command {
       ATIP_ONLINE_DASHBOARD_URL
     )
     .action(async (options: { url: string }) => {
-      // playwright-core is only loaded on demand so other commands do not pay
+      // patchright-core is only loaded on demand so other commands do not pay
       // its startup cost.
       const { openPortalWindow } = await import('@/utils/portalBrowser');
       await openPortalWindow({

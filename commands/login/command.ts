@@ -33,7 +33,7 @@ function reportExpiry(session: PortalSession): void {
 }
 
 async function captureViaBrowser(): Promise<void> {
-  // playwright-core is only loaded on demand so other commands do not pay its
+  // patchright-core is only loaded on demand so other commands do not pay its
   // startup cost.
   const { captureSessionViaBrowser } = await import('@/utils/playwrightLogin');
   print(chalk.bold('Opening Chrome for you to sign in…'));
