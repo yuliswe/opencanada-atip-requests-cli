@@ -115,8 +115,9 @@ Track your own requests (formal and informal). `<ref>` is the tracker ID
 shown by `list`, or the portal request number.
 
 ```sh
-atip request new                            # Submit a formal request via the browser, then track it
-atip request new -i "Health Canada" -s "…"  # Pre-fill institution and summary
+atip request new                            # Prefill a formal request in the browser up to payment, then track it
+atip request new -i LAC -l "Title" -d "…"   # Institution (name/acronym/id), request label, and description
+atip request new -i "Canada Revenue Agency" --format paper --eligibility permanent-resident
 
 atip request list                           # Refresh from the portal, then show (needs `atip login`)
 atip request ls                             # `ls` is an alias for `list`
@@ -134,12 +135,18 @@ atip request remove 1
 Statuses: `submitted`, `acknowledged`, `in-progress`, `extended`,
 `records-ready`, `completed`, `abandoned`.
 
-`request new` is a browser hand-off: submission needs Sign-In Canada /
-CanadaLogin and (for formal ATI requests) the $5 Moneris payment, neither of
-which has an API. `request status` is the manual, no-login way to record a
-status you read yourself. Download released records promptly — ATIP Online
-retains them for only two years after completion, so the local tracker plus
-your downloads are the durable copy.
+`request new` uses your stored session (`atip login`) to open a signed-in
+Chrome window and prefill the whole new-request wizard for a formal ATI request
+— subject, institution, request label and description, delivery format, and the
+account-populated contact information — stopping on the review page. You check
+the prefilled request and pay the $5 Moneris fee yourself, since payment has no
+API; the window stays open until you close it, then the CLI prompts for the
+confirmation number to track. The wizard is driven as a real (stealth) browser
+because the portal has no API and its firewall blocks scripted form posts.
+`request status` is the manual, no-login way to record a status you read
+yourself. Download released records promptly — ATIP Online retains them for only
+two years after completion, so the local tracker plus your downloads are the
+durable copy.
 
 ## Managing your own requests (authenticated)
 

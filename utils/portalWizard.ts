@@ -1,12 +1,5 @@
-import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
-import {
-  applySetCookies,
-  extractAntiforgeryToken,
-  parseCookieHeader,
-  serializeCookieJar,
-  SessionExpiredError,
-} from '@/utils/portal';
-import { type PortalSession } from '@/utils/session';
+import { type Page } from 'patchright-core';
+import { extractAntiforgeryToken } from '@/utils/portal';
 import { ATIP_ONLINE_ORIGIN } from '@/utils/urls';
 
 // "None of the above - I am looking for general government records" on the
@@ -105,12 +98,6 @@ export function resolvePortalInstitution(
   );
 }
 
-type WizardStep = {
-  status: number;
-  url: string;
-  html: string;
-};
-
 // A wizard step's antiforgery token, the POST target of its "Next" button
 // (ASP.NET renders it as the button's formaction, not the form's action), and
 // every hidden field to echo back on the next POST.
@@ -147,127 +134,135 @@ export function parseWizardStep(html: string): {
   };
 }
 
-// Drives the signed-in new-request wizard with plain authenticated requests —
-// the same mechanism "request list" uses — so the CLI can prefill every step up
-// to payment without a browser. Each step mints its own antiforgery cookie, so
-// the jar is threaded across requests and seeded with only the auth/WAF cookies
-// (a carried-over antiforgery cookie fails validation).
-export class NewRequestWizard {
-  private jar: Map<string, string>;
+// Eligibility basis for accessing the records, as the details form's
+// EligibilityId radio encodes it. Everyone submitting a formal ATI request
+// qualifies under one of these; "citizen" is the default.
+export const ELIGIBILITY = {
+  citizen: '1',
+  'permanent-resident': '2',
+  'present-in-canada': '3',
+} as const;
 
-  constructor(session: PortalSession) {
-    if (!session.cookie) {
-      throw new Error('Session has no cookie. Run "atip login".');
+// How the response is delivered, as the details form's RequestFormatId radio
+// encodes it. "account" (electronic, to the ATIP Online account) is the default
+// and keeps everything inside the portal.
+export const DELIVERY_FORMAT = {
+  account: '4',
+  electronic: '5',
+  paper: '2',
+  'in-person': '3',
+} as const;
+
+export type NewRequestInput = {
+  // Institution name, acronym, or portal id — resolved against /en/Organisation.
+  institution: string;
+  // Short title (details form's "Request label", max 100 characters).
+  label: string;
+  // What records are being requested (details form's "Request description",
+  // max 3000 characters).
+  description: string;
+  eligibilityValue?: string;
+  formatValue?: string;
+};
+
+// The confirm-request review page — the last step before the Moneris payment.
+// "request new" drives the wizard here and hands the browser to the user, who
+// reviews the prefilled request and clicks Finish to pay.
+export const REQUEST_REVIEW_PATH = '/en/RequestReview';
+
+async function clickNext(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Next' }).first().click();
+  await page.waitForLoadState('domcontentloaded');
+}
+
+// Clicks Next through the remaining prefilled/optional steps (attach documents,
+// contact information, both already satisfied) until the review page. Stops
+// early if a Next click does not change the URL — that means a step still needs
+// input the CLI did not provide, so the half-filled wizard is left on that page
+// for the user to finish by hand rather than looping forever.
+async function advanceToReview(page: Page): Promise<void> {
+  for (let step = 0; step < 6; step++) {
+    if (new RegExp(REQUEST_REVIEW_PATH, 'i').test(page.url())) {
+      return;
     }
-    this.jar = new Map();
-    for (const [name, value] of parseCookieHeader(session.cookie)) {
-      if (
-        name.startsWith('.AspNetCore.Cookies') ||
-        name === 'ATIP' ||
-        name.startsWith('TS')
-      ) {
-        this.jar.set(name, value);
-      }
+    const next = page.getByRole('button', { name: 'Next' }).first();
+    if ((await next.count()) === 0) {
+      return;
+    }
+    const before = page.url();
+    await next.click();
+    await page.waitForLoadState('domcontentloaded');
+    if (page.url() === before) {
+      return;
     }
   }
+}
 
-  private assertAuthed(url: string): void {
-    const path = new URL(url).pathname.toLowerCase();
-    if (
-      new URL(url).origin !== ATIP_ONLINE_ORIGIN ||
-      path.includes('/signon') ||
-      path.includes('/home/signin')
-    ) {
-      throw new SessionExpiredError();
+// Drives the signed-in new-request wizard from the welcome step to the
+// confirm-request review page, prefilling a general-records (Access to
+// Information Act) request. Uses real browser automation rather than raw HTTP
+// because the portal's WAF blocks scripted form POSTs, and because the details
+// form's radios write hidden mirror fields via JavaScript that only fire on a
+// real click. Contact information is left as ATIP Online pre-populates it from
+// the signed-in account. Leaves the page on the review step; never clicks
+// Finish (which begins payment). Returns the resolved institution.
+export async function prefillNewRequestToReview(
+  page: Page,
+  input: NewRequestInput
+): Promise<PortalInstitution> {
+  const eligibility = input.eligibilityValue ?? ELIGIBILITY.citizen;
+  const format = input.formatValue ?? DELIVERY_FORMAT.account;
+
+  // Welcome: general government records.
+  await page.goto(`${ATIP_ONLINE_ORIGIN}/en`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page.click(
+    `input[name="SubjectId"][value="${GENERAL_RECORDS_SUBJECT_ID}"]`
+  );
+  await clickNext(page);
+
+  // What you need to make a request: acknowledge the fee/preparation notice.
+  await page.check('input[name="Acknowledged"]');
+  await clickNext(page);
+
+  // Choose an institution: resolve the query against the full server-rendered
+  // list, then open its selector.
+  await page.goto(`${ATIP_ONLINE_ORIGIN}/en/Organisation`, {
+    waitUntil: 'domcontentloaded',
+  });
+  const institution = resolvePortalInstitution(
+    parsePortalInstitutions(await page.content()),
+    input.institution
+  );
+  await page.goto(
+    `${ATIP_ONLINE_ORIGIN}/en/Organisation/Select/${institution.id}`,
+    { waitUntil: 'domcontentloaded' }
+  );
+
+  // Institution introduction page: most institutions add a confirmation
+  // checkbox that must be ticked before the details form is reachable.
+  if (/\/Request\/IntroductionPage/i.test(page.url())) {
+    const confirm = page.locator('input[name="Acknowledged"]');
+    if (await confirm.count()) {
+      await confirm.check();
     }
+    await clickNext(page);
   }
 
-  // Issues a request and follows redirects manually so a per-hop Set-Cookie
-  // (the antiforgery cookie, re-minted session cookies) lands in the jar before
-  // the next hop, which Node's cookie-less fetch would otherwise drop.
-  private async request(
-    pathOrUrl: string,
-    init?: { method?: 'GET' | 'POST'; body?: string }
-  ): Promise<WizardStep> {
-    const method = init?.method ?? 'GET';
-    let url = pathOrUrl.startsWith('http')
-      ? pathOrUrl
-      : `${ATIP_ONLINE_ORIGIN}${pathOrUrl}`;
-    let response = await fetchWithTimeout(url, {
-      method,
-      headers: {
-        Cookie: serializeCookieJar(this.jar),
-        'User-Agent': 'atip-cli',
-        ...(method === 'POST'
-          ? { 'Content-Type': 'application/x-www-form-urlencoded' }
-          : {}),
-      },
-      body: init?.body,
-      redirect: 'manual',
-    });
-    applySetCookies(this.jar, response.headers.getSetCookie());
-    for (let hop = 0; hop < 12; hop++) {
-      const location = response.headers.get('location');
-      if (!location) {
-        break;
-      }
-      url = new URL(location, url).toString();
-      this.assertAuthed(url);
-      response = await fetchWithTimeout(url, {
-        headers: {
-          Cookie: serializeCookieJar(this.jar),
-          'User-Agent': 'atip-cli',
-        },
-        redirect: 'manual',
-      });
-      applySetCookies(this.jar, response.headers.getSetCookie());
-    }
-    this.assertAuthed(response.url || url);
-    return { status: response.status, url, html: await response.text() };
-  }
+  // Provide request details.
+  await page.waitForURL(/\/Request\/Details/i, { timeout: 15_000 });
+  await page.fill('#standardQuestion-RequestLabel', input.label);
+  await page.fill('#standardQuestion-RequestDescription', input.description);
+  // The eligibility and format radios each write a hidden *-Value field that the
+  // form submits, populated by an onclick handler, so they must be clicked.
+  await page.click(
+    `input[name="standardQuestion-EligibilityId"][value="${eligibility}"]`
+  );
+  await page.click(
+    `input[name="standardQuestion-RequestFormatId"][value="${format}"]`
+  );
 
-  private async post(
-    action: string,
-    fields: Record<string, string>,
-    token: string | null
-  ): Promise<WizardStep> {
-    const body = new URLSearchParams(fields);
-    if (token) {
-      body.set('__RequestVerificationToken', token);
-    }
-    return this.request(action, { method: 'POST', body: body.toString() });
-  }
-
-  // Fetches the institution chooser and resolves the query against it.
-  async resolveInstitution(query: string): Promise<PortalInstitution> {
-    const step = await this.request('/en/Organisation');
-    return resolvePortalInstitution(parsePortalInstitutions(step.html), query);
-  }
-
-  // Advances Welcome (choose general records) and What-you-need (acknowledge),
-  // then selects the institution, landing on the request-details form. Returns
-  // the details step so the caller can prefill it (or hand it to the browser).
-  async startGeneralRecordsRequest(institutionId: string): Promise<WizardStep> {
-    const welcome = parseWizardStep((await this.request('/en')).html);
-    if (!welcome.nextAction) {
-      throw new SessionExpiredError();
-    }
-    const whatYouNeed = parseWizardStep(
-      (
-        await this.post(
-          welcome.nextAction,
-          { ...welcome.hiddens, SubjectId: GENERAL_RECORDS_SUBJECT_ID },
-          welcome.token
-        )
-      ).html
-    );
-    if (whatYouNeed.nextAction) {
-      await this.post(
-        whatYouNeed.nextAction,
-        { ...whatYouNeed.hiddens, Acknowledged: 'true' },
-        whatYouNeed.token
-      );
-    }
-    return this.request(`/en/Organisation/Select/${institutionId}`);
-  }
+  await advanceToReview(page);
+  return institution;
 }
