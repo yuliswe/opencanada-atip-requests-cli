@@ -65,8 +65,10 @@ atip --help
 
 `_completion.zsh` at the repo root completes subcommands, options, institution
 slugs (for `-o/--org`), and tracked request refs (for `atip request show`,
-`status`, `update`, `remove`). Source it from your `~/.zshrc`, after
-`compinit`:
+`status`, `update`, `remove`). The repo `.zshrc` sources it, so terminal
+sessions started in the repo get it automatically; start a new session after
+pulling. To get completions in any other shell, source it from your
+`~/.zshrc` (the script runs `compinit` itself if it has not run yet):
 
 ```sh
 source /path/to/opencanada-atip-requests-cli/_completion.zsh

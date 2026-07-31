@@ -23,3 +23,5 @@ fi
 
 export PATH="$WS_DIR/bin:$PATH"
 
+[ -f "$WS_DIR/_completion.zsh" ] && source "$WS_DIR/_completion.zsh"
+
