@@ -2,6 +2,8 @@
 
 import { Command } from 'commander';
 import process from 'node:process';
+import { createCompleteCommandGroup } from '@/commands/complete/group';
+import { createCompletionCommandGroup } from '@/commands/completion/group';
 import { createInformalCommand } from '@/commands/informal/command';
 import { createLoginCommand } from '@/commands/login/command';
 import { createLogoutCommand } from '@/commands/logout/command';
@@ -23,6 +25,8 @@ program
   )
   .version('0.1.0');
 
+program.addCommand(createCompleteCommandGroup());
+program.addCommand(createCompletionCommandGroup(program));
 program.addCommand(createInformalCommand());
 program.addCommand(createLoginCommand());
 program.addCommand(createLogoutCommand());

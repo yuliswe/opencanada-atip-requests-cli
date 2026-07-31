@@ -52,9 +52,12 @@ export function isTrackedStatus(value: string): value is TrackedStatus {
   return (TRACKED_STATUSES as readonly string[]).includes(value);
 }
 
+export function getCliHomeDir(): string {
+  return getEnv().ATIP_CLI_HOME ?? path.join(os.homedir(), '.atip-cli');
+}
+
 export function getStoreFilePath(): string {
-  const home = getEnv().ATIP_CLI_HOME ?? path.join(os.homedir(), '.atip-cli');
-  return path.join(home, 'requests.json');
+  return path.join(getCliHomeDir(), 'requests.json');
 }
 
 export function loadStore(): RequestStore {
